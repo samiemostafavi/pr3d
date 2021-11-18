@@ -2,13 +2,9 @@ import numpy as np
 import sys
 import os
 import os.path
-
-#import tensorflow as tf
 import pyarrow.parquet as pq
 
-# if you run python inside the folder, then:
-sys.path.insert(0, '../lib')
-print(sys.path)
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from cde.data_collector import ParquetDataset
 

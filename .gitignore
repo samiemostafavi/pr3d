@@ -8,8 +8,13 @@ __pycache__/
 # C extensions
 *.so
 
+*.pkl
+*.npz
+*.dat
+
 # Distribution / packaging
 .Python
+data/
 build/
 develop-eggs/
 dist/

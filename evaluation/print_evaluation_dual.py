@@ -16,9 +16,8 @@ print(pd.__version__) #0.24 / 0.25.3
 
 sys.path.insert(0, '../../..')
 
-from cde.density_estimator import GPDExtremeValueMixtureDensityNetwork,NoNaNGPDExtremeValueMixtureDensityNetwork, NewGPDExtremeValueMixtureDensityNetwork
+from cde.density_estimator import NoNaNGPDExtremeValueMixtureDensityNetwork
 from cde.density_estimator import MixtureDensityNetwork
-from cde.density_estimator import ExtremeValueMixtureDensityNetwork
 
 from cde.data_collector import MatlabDataset, MatlabDatasetH5, get_most_common_unique_states
 from cde.density_estimator import plot_conditional_hist, measure_percentile, measure_percentile_allsame, measure_tail, measure_tail_allsame, init_tail_index_hill, estimate_tail_index_hill

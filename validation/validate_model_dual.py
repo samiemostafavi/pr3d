@@ -10,9 +10,7 @@ import bisect
 import tensorflow as tf
 import warnings
 
-# if you run python inside the folder, then:
-sys.path.insert(0, '../lib')
-print(sys.path)
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from cde.data_collector import ParquetDataset
 from cde.density_estimator import NoNaNGPDExtremeValueMixtureDensityNetwork
