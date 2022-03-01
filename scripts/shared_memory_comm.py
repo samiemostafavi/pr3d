@@ -6,6 +6,7 @@ import numpy as np
 import time
 import random
 import signal
+import warnings
 
 import sys
 import multiprocessing
@@ -14,6 +15,9 @@ from multiprocessing import current_process
 
 # this python script is responsible to host the connections from other applications, in a shared memory manner
 
+warnings.filterwarnings('ignore')
+ABS_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+sys.path.append(ABS_PATH)
 
 # MACOS run with OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES env before
 # example: OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES python3 shared_memory_comm.py
