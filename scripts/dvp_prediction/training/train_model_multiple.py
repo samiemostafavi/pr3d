@@ -10,13 +10,14 @@ import math
 import bisect
 import tensorflow as tf
 
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 
-from ..cde.density_estimator import NoNaNGPDExtremeValueMixtureDensityNetwork
-from ..cde.density_estimator import MixtureDensityNetwork
+from cde.density_estimator import NoNaNGPDExtremeValueMixtureDensityNetwork
+from cde.density_estimator import MixtureDensityNetwork
 
-from ..cde.data_collector import MatlabDataset, MatlabDatasetH5, get_most_common_unique_states
-from ..cde.density_estimator import plot_conditional_hist, measure_percentile, measure_percentile_allsame, measure_tail, measure_tail_allsame, init_tail_index_hill, estimate_tail_index_hill
-from ..cde.evaluation.empirical_eval import evaluate_models_singlestate, empirical_measurer, evaluate_model_allstates, evaluate_models_allstates_plot, obtain_exp_value, evaluate_models_allstates_agg
+from cde.data_collector import MatlabDataset, MatlabDatasetH5, get_most_common_unique_states
+from cde.density_estimator import plot_conditional_hist, measure_percentile, measure_percentile_allsame, measure_tail, measure_tail_allsame, init_tail_index_hill, estimate_tail_index_hill
+from cde.evaluation.empirical_eval import evaluate_models_singlestate, empirical_measurer, evaluate_model_allstates, evaluate_models_allstates_plot, obtain_exp_value, evaluate_models_allstates_agg
 
 
 """ Load or Create Project """

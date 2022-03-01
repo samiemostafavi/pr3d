@@ -11,8 +11,10 @@ import bisect
 import tensorflow as tf
 import pyarrow.parquet as pq
 
-from ..cde.density_estimator import NoNaNGPDExtremeValueMixtureDensityNetwork
-from ..cde.density_estimator import MixtureDensityNetwork
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
+
+from cde.density_estimator import NoNaNGPDExtremeValueMixtureDensityNetwork
+from cde.density_estimator import MixtureDensityNetwork
 
 """ Load training data stored in .npz format """
 

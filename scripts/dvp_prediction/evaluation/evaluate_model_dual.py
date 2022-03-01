@@ -14,12 +14,14 @@ import pandas as pd
 print(tf.__version__) #1.7.0
 print(pd.__version__) #0.24 / 0.25.3
 
-from ..cde.density_estimator import NoNaNGPDExtremeValueMixtureDensityNetwork
-from ..cde.density_estimator import MixtureDensityNetwork
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..')))
 
-from ..cde.data_collector import MatlabDataset, MatlabDatasetH5, get_most_common_unique_states
-from ..cde.density_estimator import plot_conditional_hist, measure_percentile, measure_percentile_allsame, measure_tail, measure_tail_allsame, init_tail_index_hill, estimate_tail_index_hill
-from ..cde.evaluation.empirical_eval import evaluate_models_singlestate, empirical_measurer, evaluate_model_allstates, evaluate_models_allstates_plot, obtain_exp_value, evaluate_models_allstates_agg, evaluate_models_save_plots,evaluate_models_allstates_plot_save, evaluate_model_allstates_tail
+from cde.density_estimator import NoNaNGPDExtremeValueMixtureDensityNetwork
+from cde.density_estimator import MixtureDensityNetwork
+
+from cde.data_collector import MatlabDataset, MatlabDatasetH5, get_most_common_unique_states
+from cde.density_estimator import plot_conditional_hist, measure_percentile, measure_percentile_allsame, measure_tail, measure_tail_allsame, init_tail_index_hill, estimate_tail_index_hill
+from cde.evaluation.empirical_eval import evaluate_models_singlestate, empirical_measurer, evaluate_model_allstates, evaluate_models_allstates_plot, obtain_exp_value, evaluate_models_allstates_agg, evaluate_models_save_plots,evaluate_models_allstates_plot_save, evaluate_model_allstates_tail
 
 
 """ Load or Create Project """
@@ -31,7 +33,7 @@ PROJECT_NAME = 'onehop_p95'
 # Path
 projects_path = 'saves/projects/'
 path = projects_path + PROJECT_NAME + '/'
-  
+
 # Get the directory name from the specified path
 dirname = os.path.dirname(path)
 
@@ -42,7 +44,7 @@ os.makedirs(dirname, exist_ok=True)
 
 """ load training data """
 
-FILE_NAME = 'traindata_1hop_p95_1k.npz'
+FILE_NAME = 'traindata_1hop_p95_20k.npz'
 
 try:
     npzfile = np.load(path + FILE_NAME)
@@ -97,32 +99,52 @@ ndim_x = ndim_x_test
 
 """ load trained models """
 
-FILE_NAME = 'model_onehop_p95_1k_2.pkl'
+FILE_NAME = 'gmm_onehop_p95_20k.pkl'
 if not os.path.isfile(path + FILE_NAME):
     print('No trained model found.')
     exit()
 
 with open(path+FILE_NAME, 'rb') as input:
-    model = NoNaNGPDExtremeValueMixtureDensityNetwork(name="", ndim_x=ndim_x, ndim_y=1)
-    model._setup_inference_and_initialize()
-    model = pickle.load(input)
+    #gmm_model = MixtureDensityNetwork("", ndim_x=ndim_x, n_centers=3, ndim_y=1,n_training_epochs=15000,hidden_sizes=(16, 16))
+    #gmm_model = pickle.load(input)
+    #gmm_model._setup_inference_and_initialize()
+    #sess = tf.Session()
+    #with tf.Session() as sess:
+    #    d_model = pickle.load(input)
 
-n_epoch = model.n_training_epochs
+    #gmm_model = d_model
+    #gmm_model._setup_inference_and_initialize()
+    gmm_model = NoNaNGPDExtremeValueMixtureDensityNetwork(name="a", ndim_x=ndim_x, ndim_y=1)
+    gmm_model._setup_inference_and_initialize()
+    gmm_model = pickle.load(input)
 
-print(model)
+
+print(gmm_model)
+
+FILE_NAME = 'model_onehop_p95_20k.pkl'
+if not os.path.isfile(path + FILE_NAME):
+    print('No trained model found.')
+    exit()
+
+with open(path+FILE_NAME, 'rb') as input:
+    emm_model = NoNaNGPDExtremeValueMixtureDensityNetwork(name="b", ndim_x=ndim_x, ndim_y=1)
+    emm_model._setup_inference_and_initialize()
+    emm_model = pickle.load(input)
+
+n_epoch = emm_model.n_training_epochs
+
+print(emm_model)
 print('n_epoch: %d'%n_epoch)
-
 
 """ Find most common states in the test_data """
 
 N_us=20 # N=60
-unique_states,_,_ = get_most_common_unique_states(test_data[:900000,:],ndim_x=1,N=N_us,plot=True,save_fig_addr=path+'eval_')
-
+unique_states,_,_ = get_most_common_unique_states(test_data[100000:5000000,:],ndim_x=1,N=N_us,plot=True,save_fig_addr=path+'eval_')
 
 """ Benchamrk the models upon all the states """
 """ Requirements: models, emp_model, test_data, ndim_x_test, and unique_states """
 
-FILE_NAME = 'eval_onehop_p95.npz'
+FILE_NAME = 'eval_onehop_dual_p95_20k.npz'
 
 quantiles = [0.9, 0.99, 0.999, 0.9999, 0.99999] #quantiles = [0.9, 0.99, 0.999, 0.9999, 0.99999]
 xsize = ndim_x_test
@@ -136,17 +158,21 @@ emp_model = empirical_measurer(dataset=test_data,xsize=xsize,quantiles=quantiles
 eval_results = np.empty((0,N_us,xsize+(len(quantiles))+1))
 
 # EMM
-results_1 = evaluate_model_allstates(emp_model=emp_model,model=model,train_data=train_data,unique_states=unique_states,N=N_us,quantiles=quantiles,xsize=xsize,root_find=False)
+results_1 = evaluate_model_allstates(emp_model=emp_model,model=emm_model,train_data=train_data,unique_states=unique_states,N=N_us,quantiles=quantiles,xsize=xsize,root_find=False)
 eval_results = np.append(eval_results,[results_1],axis=0)
+
+# GMM
+results_2 = evaluate_model_allstates(emp_model=emp_model,model=gmm_model,train_data=train_data,unique_states=unique_states,N=N_us,quantiles=quantiles,xsize=xsize,root_find=True)
+eval_results = np.append(eval_results,[results_2],axis=0)
 
 
 # Tail prediction evaluation
 N_yt=15
-ylimT = [0.00001, 0.99999]
-tail_results,tail_x_axis,tail_x_quants = evaluate_model_allstates_tail([model],test_data,unique_states,N=N_us,N_y=N_yt,ylim=ylimT,xsize=xsize)
+ylimT = [0.00001, 0.01] #0.00001 (real tail), 0.99999 (close to zero) 
+tail_results,tail_x_axis,tail_x_quants = evaluate_model_allstates_tail([emm_model,gmm_model],test_data,unique_states,N=N_us,N_y=N_yt,ylim=ylimT,xsize=xsize)
 
 
 # save the results into a file
 meta_info = np.array([xsize, N_us, len(train_data), n_epoch, N_yt, ylimT[0], ylimT[1]])
 quantiles_info = np.array(quantiles)
-np.savez(path + FILE_NAME, meta_info, quantiles_info, emp_model.database, results_1, tail_results, tail_x_axis, tail_x_quants)
+np.savez(path + FILE_NAME, meta_info, quantiles_info, emp_model.database, tail_results, tail_x_axis, tail_x_quants, results_1, results_2)
