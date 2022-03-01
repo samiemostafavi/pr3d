@@ -6,22 +6,27 @@ import pyarrow as pa
 
 """ load dataset """
 class ParquetDataset():
-    def __init__(self, file_addresses, predictor_num = 1):
-        for file_address in file_addresses:
-            if predictor_num is 1:
-                table = pa.concat_tables(
-                    pq.read_table(file_address,columns=['end2enddelay','h1_uplink_netstate','h1_compute_netstate','h1_downlink_netstate'])
-                    for file_address in file_addresses)
-            elif predictor_num is 2:
-                table = pa.concat_tables(
-                    pq.read_table(file_address,columns=['totaldelay_compute','totaldelay_downlink','h2_compute_netstate','h2_downlink_netstate'])
-                    for file_address in file_addresses)
-                table = table.add_column(0,'delay', pc.add(table.column('totaldelay_compute'),table.column('totaldelay_downlink'))).drop(['totaldelay_compute','totaldelay_downlink'])
-            elif predictor_num is 3:
-                table = pa.concat_tables(
-                    pq.read_table(file_address,columns=['totaldelay_downlink','h3_downlink_netstate'])
-                    for file_address in file_addresses)
-                
+    def __init__(self, file_addresses, read_columns=None, predictor_num=None):
+        if predictor_num is not None:
+            for file_address in file_addresses:
+                if predictor_num is 1:
+                    table = pa.concat_tables(
+                        pq.read_table(file_address,columns=['end2enddelay','h1_uplink_netstate','h1_compute_netstate','h1_downlink_netstate'])
+                        for file_address in file_addresses)
+                elif predictor_num is 2:
+                    table = pa.concat_tables(
+                        pq.read_table(file_address,columns=['totaldelay_compute','totaldelay_downlink','h2_compute_netstate','h2_downlink_netstate'])
+                        for file_address in file_addresses)
+                    table = table.add_column(0,'delay', pc.add(table.column('totaldelay_compute'),table.column('totaldelay_downlink'))).drop(['totaldelay_compute','totaldelay_downlink'])
+                elif predictor_num is 3:
+                    table = pa.concat_tables(
+                        pq.read_table(file_address,columns=['totaldelay_downlink','h3_downlink_netstate'])
+                        for file_address in file_addresses)
+        else:
+            table = pa.concat_tables(
+                pq.read_table(file_address,columns=read_columns)
+                for file_address in file_addresses)
+
         self.dataset = table.to_pandas().to_numpy()
 
         self.predictor_num = predictor_num
