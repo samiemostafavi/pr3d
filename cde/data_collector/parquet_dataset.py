@@ -20,7 +20,7 @@ class ParquetDataset():
                     table = table.add_column(0,'delay', pc.add(table.column('totaldelay_compute'),table.column('totaldelay_downlink'))).drop(['totaldelay_compute','totaldelay_downlink'])
                 elif predictor_num is 3:
                     table = pa.concat_tables(
-                        pq.read_table(file_address,columns=['totaldelay_downlink','h3_downlink_netstate'])
+                        pq.read_table(file_address,columns=['totaldelay_downlink','h3_uplink_netstate'])
                         for file_address in file_addresses)
         else:
             table = pa.concat_tables(

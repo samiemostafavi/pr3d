@@ -402,10 +402,10 @@ class NoNaNGPDExtremeValueMixtureDensityNetwork(BaseNNMixtureEstimator):
 
   def _get_mixture_components(self, X):
     weights, locs, scales = self.sess.run([self.weights, self.locs_unnormalized, self.scales_unnormalized], feed_dict={self.X_ph: X})
-    assert weights.shape[0] == locs.shape[0] == scales.shape[0] == X.shape[0]
-    assert weights.shape[1] == locs.shape[1] == scales.shape[1] == self.n_centers
-    assert locs.shape[2] == scales.shape[2] == self.ndim_y
-    assert locs.ndim == 3 and scales.ndim == 3 and weights.ndim == 2
+    #assert weights.shape[0] == locs.shape[0] == scales.shape[0] == X.shape[0]
+    #assert weights.shape[1] == locs.shape[1] == scales.shape[1] == self.n_centers
+    #assert locs.shape[2] == scales.shape[2] == self.ndim_y
+    #assert locs.ndim == 3 and scales.ndim == 3 and weights.ndim == 2
     return weights, locs, scales
 
   def _get_tail_components(self, X):
