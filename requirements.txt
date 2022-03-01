@@ -1,6 +1,8 @@
 Keras==2.2.4
 tensorflow==1.7.0
 edward==1.3.5
+pyparsing==2.4.7
+pyarrow==5.0.0
 matplotlib
 numpy
 pandas
@@ -13,4 +15,3 @@ statsmodels
 sphinx_rtd_theme
 progressbar2
 xlrd
-pyarrow==5.0.0
