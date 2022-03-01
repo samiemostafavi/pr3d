@@ -242,7 +242,8 @@ def evaluate_models_singlestate(models,model_names,train_data,cond_state=[0,1,7]
 
 """ Empirical Data Analysis """
 
-def evaluate_models_save_plots(models,model_names,train_data,cond_state=[0,1,7],file_addr='../../data/cond_records_[0_1_7]_92M.mat',quantiles=[0.8,1-1e-1,1-1e-3,1-1e-5,1-1e-7],test_dataset=None,save_fig_addr=None):
+
+def evaluate_models_save_plots(models,model_names,train_data,cond_state=[0,1,7],file_addr='../../data/cond_records_[0_1_7]_92M.mat',quantiles=[0.8,1-1e-1,1-1e-3,1-1e-5,1-1e-7],test_dataset=None,save_fig_addr=None, xlim = None, loglog=True):
     
     n_models = len(models)
 
@@ -259,16 +260,22 @@ def evaluate_models_save_plots(models,model_names,train_data,cond_state=[0,1,7],
     #fig, axs = plt.subplots(3, 2, figsize=(9*2,6+3+3), gridspec_kw={'height_ratios': [2, 1, 1]})
 
     # create x
+    width = 0.1
     measured_p0,num_samples_test,avg = measure_percentile_allsame(dataset=test_data,p_perc=0)
     measured_p8,num_samples_test,avg = measure_percentile_allsame(dataset=test_data,p_perc=80)
     measured_p1,num_samples_test,avg = measure_percentile_allsame(dataset=test_data,p_perc=99.999)
-    width = 0.1
-    xlim = [np.floor(measured_p0),np.ceil(measured_p1),np.ceil(measured_p8),np.ceil(measured_p1)]
+    if xlim is None:
+        xlim = [np.floor(measured_p0),np.ceil(measured_p1),np.ceil(measured_p8),np.ceil(measured_p1)]
     #if(xlim[0]<=0.1):
     #    xlim[0] = 0.1
     x = np.arange(start=xlim[0], stop=xlim[1], step=width)
     x_edges = x-(width/2)
     x_edges = np.append(x_edges,x[-1]+(width/2))
+
+
+    ##########################################################
+    ##########----FIGURE-----1-------------###################
+    ##########################################################
 
     # train data histogram
     try:
@@ -329,15 +336,25 @@ def evaluate_models_save_plots(models,model_names,train_data,cond_state=[0,1,7],
 
     fig, ax = plt.subplots(figsize=(10,5))
 
-    # tail probability
-    x = np.logspace(math.log10( xlim[2] ), math.log10( xlim[3] ), num=60)
+    ##########################################################
+    ##########----FIGURE-----2-------------###################
+    ##########################################################
+
+    if loglog is True:
+        # tail probability
+        x = np.logspace(math.log10( xlim[2] ), math.log10( xlim[3] ), num=60)
+    else:
+        x = np.linspace(xlim[2],xlim[3],num=60) #new
 
     # train data tail
     if(num_samples_train != 0):
         train_tail=[]
         for i in range(len(x)):
             train_tail.append(measure_tail(dataset=train_data,x_cond=np.array([cond_state]),y=x[i]))
-        ax.loglog(x,train_tail, marker='.', label="Training data "+str(num_samples_train)+" samples", linestyle = 'None') 
+        if loglog is True:
+            ax.loglog(x,train_tail, marker='.', label="Training data "+str(num_samples_train)+" samples", linestyle = 'None') 
+        else:
+            ax.semilogy(x,train_tail, marker='.', label="Training data "+str(num_samples_test)+" samples", linestyle = 'None')
 
     # test data tail
     testd_sorted = np.sort(test_data[:,0])
@@ -345,7 +362,10 @@ def evaluate_models_save_plots(models,model_names,train_data,cond_state=[0,1,7],
     for i in range(len(x)):
         indx = bisect.bisect_left(testd_sorted, x[i])
         test_tail.append((len(test_data)-indx)/len(test_data))
-    ax.loglog(x,test_tail, marker='.', label="Test data "+str(num_samples_test)+" samples", linestyle = 'None')
+    if loglog is True:
+        ax.loglog(x,test_tail, marker='.', label="Test data "+str(num_samples_test)+" samples", linestyle = 'None')
+    else:
+        ax.semilogy(x,test_tail, marker='.', label="Test data "+str(num_samples_test)+" samples", linestyle = 'None')
 
     # models tail
     model_tails = []
@@ -367,12 +387,19 @@ def evaluate_models_save_plots(models,model_names,train_data,cond_state=[0,1,7],
         except:
             pass
 
-        ax.loglog(x,tail, label=plabel)
+        if loglog is True:
+            ax.loglog(x,tail, label=plabel)
+        else:
+            ax.semilogy(x,tail, label=plabel)
+        
         model_tails.append(tail)
 
-    ax.set_ylim([1e-8, 1])
+    # Plot limits
+    ax.set_ylim([1-max(quantiles), 1])
+    ax.set_xlim([xlim[2], xlim[3]])
     #ax.set_xticks([6,10,15,20])
-    ax.set_xticks(range(math.ceil(xlim[2]),math.floor(xlim[3])+1,3))
+    #ax.set_xticks(range(math.ceil(xlim[2]),math.floor(xlim[3])+1,3))
+
     ax.get_xaxis().set_major_formatter(mticker.ScalarFormatter())
     ax.get_xaxis().set_minor_formatter(mticker.NullFormatter())
     ax.set_xlabel('Latency [log]')
@@ -386,7 +413,12 @@ def evaluate_models_save_plots(models,model_names,train_data,cond_state=[0,1,7],
     else:
         plt.show()
 
-    # table
+
+    ##########################################################
+    ##########----FIGURE-----3-------------###################
+    ##########################################################
+
+    # a table
 
     fig, ax = plt.subplots(figsize=(8,4))
 
@@ -447,6 +479,11 @@ def evaluate_models_save_plots(models,model_names,train_data,cond_state=[0,1,7],
         plt.show()
 
 
+    ##########################################################
+    ##########----FIGURE-----4-------------###################
+    ##########################################################
+
+
     fig, ax = plt.subplots(figsize=(8,4))
 
     # Tail error plot
@@ -466,6 +503,11 @@ def evaluate_models_save_plots(models,model_names,train_data,cond_state=[0,1,7],
         plt.savefig(save_fig_addr+'fig4_state'+str(cond_state)+'.png',bbox_inches='tight')
     else:
         plt.show()
+
+
+    ##########################################################
+    ##########----FIGURE-----5-------------###################
+    ##########################################################
 
 
     fig, ax = plt.subplots(figsize=(8,4))

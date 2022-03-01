@@ -5,6 +5,7 @@ import sys
 import os
 import warnings
 
+
 warnings.filterwarnings('ignore')
 ABS_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
 PRJ_PATH = os.path.dirname(__file__)
@@ -54,7 +55,17 @@ with open(saves_path + FILE_NAME, 'rb') as input:
     print(model._get_mixture_components([network_state]))
 
     plt.style.use(PRJ_PATH+'/plot_style.txt')
-    evaluate_models_save_plots(models=[model],model_names=["EMM prediction"],train_data=train_data,cond_state=network_state,test_dataset=test_data,quantiles=[1-1e-1,1-1e-2,1-1e-3,1-1e-4,1-1e-5,1-1e-6],save_fig_addr=figures_path+'figure_')
+    evaluate_models_save_plots(
+        models=[model],
+        model_names=["EMM prediction"],
+        train_data=train_data,
+        cond_state=network_state,
+        test_dataset=test_data,
+        quantiles=[1-1e-1,1-1e-2,1-1e-3,1-1e-4,1-1e-5,1-1e-6],
+        save_fig_addr=figures_path+'figure_',
+        xlim = [0,14,0.001,14],
+        loglog=False,
+    )
 
 
 #evaluate_models_singlestate(models=[model],model_names=["EMM"],train_data=train_data,cond_state=[1],test_dataset=test_data,quantiles=[1-1e-1,1-1e-2,1-1e-3,1-1e-5])
