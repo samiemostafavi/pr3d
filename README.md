@@ -1,4 +1,4 @@
-# conditional-latency-probability-prodiction
+# conditional-latency-probability-prediction
 
 Implementation of two conditional density estimation methods with parametric neural networks in Python:
 
