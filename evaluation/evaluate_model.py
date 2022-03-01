@@ -14,14 +14,12 @@ import pandas as pd
 print(tf.__version__) #1.7.0
 print(pd.__version__) #0.24 / 0.25.3
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+from ..cde.density_estimator import NoNaNGPDExtremeValueMixtureDensityNetwork
+from ..cde.density_estimator import MixtureDensityNetwork
 
-from cde.density_estimator import NoNaNGPDExtremeValueMixtureDensityNetwork
-from cde.density_estimator import MixtureDensityNetwork
-
-from cde.data_collector import MatlabDataset, MatlabDatasetH5, get_most_common_unique_states
-from cde.density_estimator import plot_conditional_hist, measure_percentile, measure_percentile_allsame, measure_tail, measure_tail_allsame, init_tail_index_hill, estimate_tail_index_hill
-from cde.evaluation.empirical_eval import evaluate_models_singlestate, empirical_measurer, evaluate_model_allstates, evaluate_models_allstates_plot, obtain_exp_value, evaluate_models_allstates_agg, evaluate_models_save_plots,evaluate_models_allstates_plot_save, evaluate_model_allstates_tail
+from ..cde.data_collector import MatlabDataset, MatlabDatasetH5, get_most_common_unique_states
+from ..cde.density_estimator import plot_conditional_hist, measure_percentile, measure_percentile_allsame, measure_tail, measure_tail_allsame, init_tail_index_hill, estimate_tail_index_hill
+from ..cde.evaluation.empirical_eval import evaluate_models_singlestate, empirical_measurer, evaluate_model_allstates, evaluate_models_allstates_plot, obtain_exp_value, evaluate_models_allstates_agg, evaluate_models_save_plots,evaluate_models_allstates_plot_save, evaluate_model_allstates_tail
 
 
 """ Load or Create Project """

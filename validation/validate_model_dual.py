@@ -10,12 +10,10 @@ import bisect
 import tensorflow as tf
 import warnings
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-
-from cde.data_collector import ParquetDataset
-from cde.density_estimator import NoNaNGPDExtremeValueMixtureDensityNetwork
-from cde.density_estimator import MixtureDensityNetwork
-from cde.evaluation.empirical_eval import  evaluate_models_save_plots
+from ..cde.data_collector import ParquetDataset
+from ..cde.density_estimator import NoNaNGPDExtremeValueMixtureDensityNetwork
+from ..cde.density_estimator import MixtureDensityNetwork
+from ..cde.evaluation.empirical_eval import  evaluate_models_save_plots
 
 
 # Path
