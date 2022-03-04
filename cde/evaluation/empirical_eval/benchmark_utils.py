@@ -344,7 +344,8 @@ def evaluate_models_save_plots(models,model_names,train_data,cond_state=[0,1,7],
         # tail probability
         x = np.logspace(math.log10( xlim[2] ), math.log10( xlim[3] ), num=60)
     else:
-        x = np.linspace(xlim[2],xlim[3],num=60) #new
+        #x = np.linspace(xlim[2],xlim[3],num=60) #new
+        x = np.arange(start=xlim[2], stop=xlim[3], step=1)
 
     # train data tail
     if(num_samples_train != 0):
@@ -379,6 +380,9 @@ def evaluate_models_save_plots(models,model_names,train_data,cond_state=[0,1,7],
             #except:
             #    tail.append(models[j].find_tail(x_cond=mx,y=x[i],init_bound=200))
         
+        print(list(x))
+        print(tail)
+
         plabel = model_names[j]
         try:
             tail_threshold, tail_param = models[j]._get_tail_components(mx)

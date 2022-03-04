@@ -31,20 +31,22 @@ network_state = [100]
 """ import the test dataset into Numpy array """
 file_addr = [data_path+'sim3hop_1_dataset_01_Feb_2022_10_20_42.parquet']
 test_dataset = ParquetDataset(file_addresses=file_addr,read_columns=['end2enddelay','h1_uplink_netstate'])
+#test_dataset = ParquetDataset(file_addresses=file_addr,read_columns=['totaldelay_downlink','h3_downlink_netstate'])
 test_data = test_dataset.get_data_unshuffled(test_dataset.n_records)
 ndim_x_test = len(test_data[0])-1
 #print(np.shape(train_data))
 print('Test dataset loaded from ', file_addr,'. Rows: %d ' % len(test_data[:,0]), ' Columns: %d ' % len(test_data[0,:]), ' ndim_x: %d' % ndim_x_test)
 
 """ import the training dataset into Numpy array """
-file_addr = [data_path+'sim3hop_1_dataset_27_Feb_22k_correct_noised.parquet']
-train_dataset = ParquetDataset(file_addresses=file_addr,read_columns=['end2enddelay','h1_uplink_netstate'])
+file_addr = [data_path+'training_data_500k_1hop.parquet']
+#train_dataset = ParquetDataset(file_addresses=file_addr,read_columns=['end2enddelay','h1_uplink_netstate'])
+train_dataset = ParquetDataset(file_addresses=file_addr,read_columns=['totaldelay_downlink','h3_downlink_netstate'])
 train_data = train_dataset.get_data_unshuffled(train_dataset.n_records)
 ndim_x_train = len(train_data[0])-1
 print('Train dataset loaded from ', file_addr,'. Rows: %d ' % len(train_data[:,0]), ' Columns: %d ' % len(train_data[0,:]), ' ndim_x: %d' % ndim_x_train)
 
 """ load trained emm model """
-FILE_NAME = 'model_onehop_22k_correct_noised.pkl'
+FILE_NAME = 'model_onehop_60k.pkl'
 with open(saves_path + FILE_NAME, 'rb') as input:
     model = NoNaNGPDExtremeValueMixtureDensityNetwork(name='EMM'+str(4), ndim_x=1, ndim_y=1)
     model._setup_inference_and_initialize()
@@ -62,10 +64,11 @@ with open(saves_path + FILE_NAME, 'rb') as input:
         cond_state=network_state,
         test_dataset=test_data,
         quantiles=[1-1e-1,1-1e-2,1-1e-3,1-1e-4,1-1e-5,1-1e-6],
-        save_fig_addr=figures_path+'figure_',
+        save_fig_addr=figures_path+'fig_60k_',
         xlim = [0,14,0.001,14],
         loglog=False,
     )
+
 
 
 #evaluate_models_singlestate(models=[model],model_names=["EMM"],train_data=train_data,cond_state=[1],test_dataset=test_data,quantiles=[1-1e-1,1-1e-2,1-1e-3,1-1e-5])
