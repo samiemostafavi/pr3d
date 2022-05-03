@@ -7,14 +7,14 @@ Implementation of two conditional density estimation methods with parametric neu
 
 # Setting up development
 
-1. Clone the repository, create a Python 3.6.0 virtual environment (requires [virtualenv](https://pypi.org/project/virtualenv/)), and activate it:
+1. Clone the repository, create a Python 3.9.0 virtual environment (requires [virtualenv](https://pypi.org/project/virtualenv/)), and activate it:
 
     ``` bash
     $ git clone git@github.com:samiemostafavi/conditional-latency-probability-prodiction.git
     
     $ cd conditional-latency-probability-prediction
 
-    $ python -m virtualenv --python=python3.6.0 ./venv
+    $ python -m virtualenv --python=python3.9.0 ./venv
 
     $ source ./venv/bin/activate
 
