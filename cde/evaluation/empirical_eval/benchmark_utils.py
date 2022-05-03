@@ -242,6 +242,71 @@ def evaluate_models_singlestate(models,model_names,train_data,cond_state=[0,1,7]
 
 """ Empirical Data Analysis """
 
+def plot_figure_2(models,model_names,cond_state=[0,1,7],quantiles=[0.8,1-1e-1,1-1e-3,1-1e-5,1-1e-7],save_fig_addr=None, xlim = None, loglog=True):
+
+    fig, ax = plt.subplots(figsize=(10,5))
+
+    ##########################################################
+    ##########----FIGURE-----2-------------###################
+    ##########################################################
+
+    if loglog is True:
+        # tail probability
+        x = np.logspace(math.log10( xlim[2] ), math.log10( xlim[3] ), num=60)
+    else:
+        #x = np.linspace(xlim[2],xlim[3],num=60) #new
+        x = np.arange(start=xlim[2], stop=xlim[3], step=1)
+
+    # models tail
+    model_tails = []
+    for j in range(len(models)):
+        tail=[]
+        for i in range(len(x)):
+            mx = np.array([cond_state])
+            my = np.array([x[i]])
+            #try:
+            tail.append(models[j].tail(mx,my))
+            #except:
+            #    tail.append(models[j].find_tail(x_cond=mx,y=x[i],init_bound=200))
+        
+        print(list(x))
+        print(tail)
+
+        plabel = model_names[j]
+        try:
+            tail_threshold, tail_param = models[j]._get_tail_components(mx)
+            tail_threshold = np.squeeze(tail_threshold)
+            plabel = plabel + " threshold=" + str(tail_threshold)
+        except:
+            pass
+
+        if loglog is True:
+            ax.loglog(x,tail, label=plabel)
+        else:
+            ax.semilogy(x,tail, label=plabel)
+        
+        model_tails.append(tail)
+
+    # Plot limits
+    ax.set_ylim([1-max(quantiles), 1])
+    ax.set_xlim([xlim[2], xlim[3]])
+    #ax.set_xticks([6,10,15,20])
+    #ax.set_xticks(range(math.ceil(xlim[2]),math.floor(xlim[3])+1,3))
+
+    ax.get_xaxis().set_major_formatter(mticker.ScalarFormatter())
+    ax.get_xaxis().set_minor_formatter(mticker.NullFormatter())
+    ax.set_xlabel('Latency [log]')
+    ax.set_ylabel('Tail probability [log]')
+    #ax.set_title("state: " +str(cond_state)+ " training samples: "+ str(num_samples_train))
+    ax.legend()
+    ax.grid()
+
+    if save_fig_addr is not None:
+        plt.savefig(save_fig_addr+'fig2_state'+str(cond_state)+'.png',bbox_inches='tight')
+    else:
+        plt.show()
+
+
 
 def evaluate_models_save_plots(models,model_names,train_data,cond_state=[0,1,7],file_addr='../../data/cond_records_[0_1_7]_92M.mat',quantiles=[0.8,1-1e-1,1-1e-3,1-1e-5,1-1e-7],test_dataset=None,save_fig_addr=None, xlim = None, loglog=True):
     

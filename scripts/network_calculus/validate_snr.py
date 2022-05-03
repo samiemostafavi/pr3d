@@ -13,7 +13,7 @@ sys.path.append(ABS_PATH)
 
 from cde.data_collector import ParquetDataset
 from cde.density_estimator import NoNaNGPDExtremeValueMixtureDensityNetwork
-from cde.evaluation.empirical_eval import  evaluate_models_save_plots
+from cde.evaluation.empirical_eval import  evaluate_models_save_plots, plot_figure_2
 
 
 # Paths
@@ -26,27 +26,19 @@ dirname = os.path.dirname(figures_path)
 os.makedirs(dirname, exist_ok=True)
 
 #most common: ([1,1,2],[1,1],[1])
-network_state = [100]
+network_state = [100,10]
 
 """ import the test dataset into Numpy array """
-file_addr = [data_path+'sim3hop_1_dataset_01_Feb_2022_10_20_42.parquet']
-test_dataset = ParquetDataset(file_addresses=file_addr,read_columns=['end2enddelay','h1_uplink_netstate'])
+file_addr = [data_path+'training_data_80k_SNR_1hop.parquet']
+test_dataset = ParquetDataset(file_addresses=file_addr,read_columns=['end2enddelay','h1_uplink_netstate','snr'])
 #test_dataset = ParquetDataset(file_addresses=file_addr,read_columns=['totaldelay_downlink','h3_downlink_netstate'])
 test_data = test_dataset.get_data_unshuffled(test_dataset.n_records)
 ndim_x_test = len(test_data[0])-1
 #print(np.shape(train_data))
 print('Test dataset loaded from ', file_addr,'. Rows: %d ' % len(test_data[:,0]), ' Columns: %d ' % len(test_data[0,:]), ' ndim_x: %d' % ndim_x_test)
 
-""" import the training dataset into Numpy array """
-file_addr = [data_path+'training_data_500k_1hop.parquet']
-#train_dataset = ParquetDataset(file_addresses=file_addr,read_columns=['end2enddelay','h1_uplink_netstate'])
-train_dataset = ParquetDataset(file_addresses=file_addr,read_columns=['totaldelay_downlink','h3_downlink_netstate'])
-train_data = train_dataset.get_data_unshuffled(train_dataset.n_records)
-ndim_x_train = len(train_data[0])-1
-print('Train dataset loaded from ', file_addr,'. Rows: %d ' % len(train_data[:,0]), ' Columns: %d ' % len(train_data[0,:]), ' ndim_x: %d' % ndim_x_train)
-
 """ load trained emm model """
-FILE_NAME = 'model_onehop_250k_finar_of2.pkl'
+FILE_NAME = 'model_onehop_80k_snr.pkl'
 with open(saves_path + FILE_NAME, 'rb') as input:
     model = NoNaNGPDExtremeValueMixtureDensityNetwork(name='EMM'+str(4), ndim_x=1, ndim_y=1)
     model._setup_inference_and_initialize()
@@ -57,14 +49,12 @@ with open(saves_path + FILE_NAME, 'rb') as input:
     print(model._get_mixture_components([network_state]))
 
     plt.style.use(PRJ_PATH+'/plot_style.txt')
-    evaluate_models_save_plots(
+    plot_figure_2(
         models=[model],
         model_names=["EMM prediction"],
-        train_data=train_data,
         cond_state=network_state,
-        test_dataset=test_data,
         quantiles=[1-1e-1,1-1e-2,1-1e-3,1-1e-4,1-1e-5,1-1e-6],
-        save_fig_addr=figures_path+'fig_250k_',
+        save_fig_addr=figures_path+'SNR_80k_',
         xlim = [0,14,0.001,14],
         loglog=False,
     )

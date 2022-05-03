@@ -40,7 +40,7 @@ print('Predictor dataset loaded from ', file_addr,'. Rows: %d ' % len(train_data
 """ create the model and train it """
 
 n_epoch_emm = 3000
-FILE_NAME = 'model_onehop_60k_overfit.pkl'
+FILE_NAME = 'model_onehop_250k.pkl'
 
 if os.path.isfile(saves_path + FILE_NAME):
     print('A trained model already exist.')
