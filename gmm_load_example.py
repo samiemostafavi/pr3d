@@ -1,19 +1,14 @@
-import keras
+import numpy as np
+
 from cde import ConditionalGMM
 from cde import create_dataset
 
-
 gmm_model = ConditionalGMM(
-    centers = 8,
-    x_dim = 3,
-    hidden_sizes = (16,16),
-    learning_rate = 1e-2,
-    weight_decay = 0.0,
-    epsilon = 1e-8,
+    h5_addr = "gmm_model.h5",
 )
+gmm_model.mlp.model.summary()
 
-gmm_model.mlp._model = keras.models.load_model("gmm_model.h5", custom_objects={ 'loss': gmm_model.negative_log_likelihood_loss })
-
+np.random.seed(0)
 X,Y = create_dataset(n_samples = 10000, x_dim = 3)
 print("X shape: {0}".format(X.shape))
 print("Y shape: {0}".format(Y.shape))
