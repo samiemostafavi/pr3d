@@ -1,11 +1,6 @@
 import tensorflow as tf
 import keras
 from keras import layers
-import tensorflow_probability as tfp
-import tensorflow_addons as tfa
-tfd = tfp.distributions
-
-
 
 class MLP():
 
