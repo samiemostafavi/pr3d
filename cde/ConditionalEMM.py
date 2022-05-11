@@ -11,9 +11,11 @@ tfd = tfp.distributions
 from .CoreNetwork import MLP
 from .ev_mixture_tf import *
 
+
 def emm_nll_loss(centers,dtype):
     # Mixture network + GPD (Extreme mixture model) negative log likelihood loss
     def loss(y_true, y_pred):
+
         # y_pred is the concatenated mixture_weights, mixture_locations, and mixture_scales
         logits = y_pred[:,0:centers-1]
         locs = y_pred[:,centers:2*centers-1]
@@ -42,10 +44,10 @@ def emm_nll_loss(centers,dtype):
         norm_factor = tf.constant(1.00,dtype=dtype)-mixture.cdf(tail_threshold)
 
         # define bulk probabilities
-        bulk_prob = mixture.prob(y_true)
+        bulk_prob_t = mixture.prob(y_true)
 
         # define GPD log probability
-        gpd_prob = gpd_prob(
+        gpd_prob_t = gpd_prob(
             tail_threshold=tail_threshold,
             tail_param = tail_param,
             tail_scale = tail_scale,
@@ -57,8 +59,9 @@ def emm_nll_loss(centers,dtype):
         # define logpdf and loglikelihood
         log_pdf_ = mixture_log_prob(
             bool_split_tensor = bool_split_tensor,
-            gpd_prob = gpd_prob,
-            bulk_prob = bulk_prob,
+            gpd_prob_t = gpd_prob_t,
+            bulk_prob_t = bulk_prob_t,
+            dtype = dtype,
         )
 
         log_likelihood_ = tf.reduce_sum(log_pdf_)
@@ -74,9 +77,20 @@ class ConditionalEMM():
         centers : int = 8,
         x_dim : int = 3,
         hidden_sizes : tuple = (16,16),
-        dtype : tf.DType = tf.float64,
+        dtype : str = 'float64',
     ):
-        self.dtype = dtype
+        # configure keras to use dtype
+        tf.keras.backend.set_floatx(dtype)
+
+        # for creating the tensors
+        if dtype == 'float64':
+            self.dtype = tf.float64
+        elif dtype == 'float32':
+            self.dtype = tf.float32
+        elif dtype == 'float16':
+            self.dtype = tf.float16
+        else:
+            raise Exception("unknown dtype format")
 
         if h5_addr is not None:
             # read side parameters
@@ -201,12 +215,11 @@ class ConditionalEMM():
                         in zip(tf.unstack(self.locs, axis=1), tf.unstack(self.scales, axis=1))]
         mixture = tfd.Mixture(cat=cat, components=components)
 
-
         # split the values into buld and tail according to the tail
         bool_split_tensor, self.tail_samples_count, self.bulk_samples_count = split_bulk_gpd(
             tail_threshold = self.tail_threshold,
             y_input = self.y_input,
-            y_batch_size = self.batch_size,
+            y_batch_size = self.y_batchsize,
             dtype = self.dtype,
         )
 
@@ -214,12 +227,12 @@ class ConditionalEMM():
         self.norm_factor = tf.constant(1.00,dtype=self.dtype)-mixture.cdf(self.tail_threshold)
 
         # define bulk probabilities
-        bulk_prob = mixture.prob(self.y_input)
-        bulk_cdf = mixture.cdf(self.y_input)
-        bulk_tail_prob = tf.constant(1.00,dtype=self.dtype)-bulk_cdf
+        bulk_prob_t = mixture.prob(self.y_input)
+        bulk_cdf_t = mixture.cdf(self.y_input)
+        bulk_tail_prob_t = tf.constant(1.00,dtype=self.dtype)-bulk_cdf_t
 
         # define GPD probabilities
-        gpd_prob = gpd_prob(
+        gpd_prob_t = gpd_prob(
             tail_threshold=self.tail_threshold,
             tail_param = self.tail_param,
             tail_scale = self.tail_scale,
@@ -227,7 +240,7 @@ class ConditionalEMM():
             y_input = self.y_input,
             dtype = self.dtype,
         )
-        gpd_tail_prob = gpd_tail_prob(
+        gpd_tail_prob_t = gpd_tail_prob(
             tail_threshold=self.tail_threshold,
             tail_param = self.tail_param,
             tail_scale = self.tail_scale,
@@ -238,20 +251,23 @@ class ConditionalEMM():
 
         self.pdf = mixture_prob(
             bool_split_tensor = bool_split_tensor,
-            gpd_prob = gpd_prob,
-            bulk_prob = bulk_prob,
+            gpd_prob_t = gpd_prob_t,
+            bulk_prob_t = bulk_prob_t,
+            dtype = self.dtype,
         )
 
         self.log_pdf =  mixture_log_prob(
             bool_split_tensor = bool_split_tensor,
-            gpd_tail_prob = gpd_tail_prob,
-            bulk_tail_prob = bulk_tail_prob,
+            gpd_prob_t = gpd_prob_t,
+            bulk_prob_t = bulk_prob_t,
+            dtype = self.dtype,
         )
 
         self.ecdf = tf.constant(1.00,dtype=self.dtype) - mixture_tail_prob(
             bool_split_tensor = bool_split_tensor,
-            gpd_tail_prob = gpd_tail_prob,
-            bulk_tail_prob = bulk_tail_prob,
+            gpd_tail_prob_t = gpd_tail_prob_t,
+            bulk_tail_prob_t = bulk_tail_prob_t,
+            dtype = self.dtype,
         )
 
         # these models are used for probability predictions
@@ -303,8 +319,13 @@ class ConditionalEMM():
         learning_rate : float = 5e-3,
         weight_decay : float = 0.0,
         epsilon : float = 1e-8,
+        dtype = np.float64,
     ):
-        
+
+        learning_rate = np.cast[dtype](learning_rate)
+        weight_decay = np.cast[dtype](weight_decay)
+        epsilon = np.cast[dtype](epsilon)
+
         # define optimizer and train_step
         optimizer = tfa.optimizers.AdamW(learning_rate=learning_rate, weight_decay=weight_decay, epsilon=epsilon)
 

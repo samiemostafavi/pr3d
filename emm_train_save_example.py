@@ -4,24 +4,27 @@ from cde import ConditionalEMM
 from cde import create_dataset
 
 
+dtype = 'float64' # 'float32' or 'float16'
+
 emm_model = ConditionalEMM(
     centers = 8,
     x_dim = 3,
     hidden_sizes = (16,16),
+    dtype = dtype,
 )
 
 np.random.seed(0)
-X,Y = create_dataset(n_samples = 10000, x_dim = 3)
+X,Y = create_dataset(n_samples = 10000, x_dim = 3, dtype = dtype)
 print("X shape: {0}".format(X.shape))
 print("Y shape: {0}".format(Y.shape))
 
 # train the model
-emm_model.fit(
-    X,Y,
-    learning_rate = 1e-2,
-    weight_decay = 0.0,
-    epsilon = 1e-8
-)
+#emm_model.fit(
+#    X,Y,
+#    learning_rate = 1e-2,
+#    weight_decay = 0.0,
+#    epsilon = 1e-8
+#)
 
 print("Single test x: {0}, and y: {1}".format(X[10,:],Y[10]))
 pdf,log_pdf,ecdf = emm_model.prob_single(X[10,:],Y[10])
