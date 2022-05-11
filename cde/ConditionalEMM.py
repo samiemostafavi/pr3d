@@ -69,8 +69,6 @@ def emm_nll_loss(centers,dtype):
             dtype = dtype,
         )
 
-        print(log_pdf_)
-
         log_likelihood_ = tf.reduce_sum(log_pdf_)
         return -log_likelihood_
 

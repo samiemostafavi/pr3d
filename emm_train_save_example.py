@@ -25,7 +25,7 @@ emm_model.fit(
     X,Y,
     batch_size = 10000, # 1000
     epochs = 1000, # 10
-    learning_rate = 1e-2,
+    learning_rate = 5e-2,
     weight_decay = 0.0,
     epsilon = 1e-8,
 )
