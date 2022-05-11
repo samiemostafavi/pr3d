@@ -12,27 +12,32 @@ from .CoreNetwork import MLP
 from .ev_mixture_tf import *
 
 
+
 def emm_nll_loss(centers,dtype):
     # Mixture network + GPD (Extreme mixture model) negative log likelihood loss
     def loss(y_true, y_pred):
 
         # y_pred is the concatenated mixture_weights, mixture_locations, and mixture_scales
-        logits = y_pred[:,0:centers-1]
+        weights = y_pred[:,0:centers-1]
         locs = y_pred[:,centers:2*centers-1]
         scales = y_pred[:,2*centers:3*centers-1]
-        tail_threshold = y_pred[:,3*centers]
-        tail_param = y_pred[:,3*centers+1]
+        tail_param = y_pred[:,3*centers]
+        tail_threshold = y_pred[:,3*centers+1]
         tail_scale = y_pred[:,3*centers+2]
 
+        # very important line, was causing (batch_size,batch_size)
+        y_true = tf.squeeze(y_true)
+
+        # find y_batchsize
         y_batchsize = tf.cast(tf.size(y_true),dtype=dtype)
 
         # build mixture density
-        cat = tfd.Categorical(logits=logits,dtype=dtype)
+        cat = tfd.Categorical(probs=weights,dtype=dtype)
         components = [tfd.Normal(loc=loc, scale=scale) for loc, scale
                         in zip(tf.unstack(locs, axis=1), tf.unstack(scales, axis=1))]
         mixture = tfd.Mixture(cat=cat, components=components)
 
-        # split the values into buld and tail according to the tail
+        # split the values into bulk and tail according to the threshold
         bool_split_tensor, tail_samples_count, bulk_samples_count = split_bulk_gpd(
             tail_threshold = tail_threshold,
             y_input = y_true,
@@ -63,6 +68,8 @@ def emm_nll_loss(centers,dtype):
             bulk_prob_t = bulk_prob_t,
             dtype = dtype,
         )
+
+        print(log_pdf_)
 
         log_likelihood_ = tf.reduce_sum(log_pdf_)
         return -log_likelihood_
@@ -117,6 +124,39 @@ class ConditionalEMM():
             # create the mlp model
             self.create_model()
 
+    def verbose_param_batch(self, x : npt.NDArray[np.float64]):
+        # for single value x (not batch)
+        # x : np.array of np.float64 with the shape (ndim)
+        [weights,locs,scales] = self.bulk_param_model.predict(x)
+        [tail_threshold,tail_param,tail_scale,norm_factor] = self.gpd_param_model.predict(x)
+
+        return (
+            np.squeeze(weights),
+            np.squeeze(locs),
+            np.squeeze(scales),
+            np.squeeze(tail_threshold),
+            np.squeeze(tail_param),
+            np.squeeze(tail_scale),
+            np.squeeze(norm_factor),
+        )
+
+    def verbose_prob_batch(self, x : npt.NDArray[np.float64], y : np.float64):
+        [gpd_multiplexer,
+            bulk_multiplexer,
+            bulk_prob_t, 
+            gpd_prob_t,
+            tail_samples_count,
+            bulk_samples_count] = self.full_prob_model.predict([x,y])
+
+        return (
+            gpd_multiplexer,
+            bulk_multiplexer,
+            bulk_prob_t, 
+            gpd_prob_t,
+            tail_samples_count,
+            bulk_samples_count,
+        )
+
     def prob_single(self, x : npt.NDArray[np.float64], y : np.float64) -> Tuple[np.float64, np.float64, np.float64]:
 
         # for single value x (not batch)
@@ -156,6 +196,10 @@ class ConditionalEMM():
                 name = 'emm_keras_model',
                 input_shape=(self.x_dim),
                 output_layer_config={
+                    'mixture_weights': { 
+                        'slice_size' : self.centers,
+                        'slice_activation' : 'softmax',
+                    },
                     'mixture_locations': { 
                         'slice_size' : self.centers,
                         'slice_activation' : None,
@@ -163,10 +207,6 @@ class ConditionalEMM():
                     'mixture_scales': { 
                         'slice_size' : self.centers,
                         'slice_activation' : 'softplus',
-                    },
-                    'mixture_weights': { 
-                        'slice_size' : self.centers,
-                        'slice_activation' : 'softmax',
                     },
                     'tail_parameter' : {
                         'slice_size' : 1,
@@ -203,20 +243,20 @@ class ConditionalEMM():
         self.x_input = self.mlp.input_layer
 
         # put mixture components together
-        self.logits = self.mlp.output_slices['mixture_weights']
+        self.weights = self.mlp.output_slices['mixture_weights']
         self.locs = self.mlp.output_slices['mixture_locations']
         self.scales = self.mlp.output_slices['mixture_scales']
-        self.tail_threshold = self.mlp.output_slices['tail_parameter']
-        self.tail_param = self.mlp.output_slices['tail_threshold']
+        self.tail_param = self.mlp.output_slices['tail_parameter']
+        self.tail_threshold = self.mlp.output_slices['tail_threshold']
         self.tail_scale = self.mlp.output_slices['tail_scale']
 
-        cat = tfd.Categorical(logits=self.logits,dtype=self.dtype)
+        cat = tfd.Categorical(probs=self.weights,dtype=self.dtype)
         components = [tfd.Normal(loc=loc, scale=scale) for loc, scale
                         in zip(tf.unstack(self.locs, axis=1), tf.unstack(self.scales, axis=1))]
         mixture = tfd.Mixture(cat=cat, components=components)
 
         # split the values into buld and tail according to the tail
-        bool_split_tensor, self.tail_samples_count, self.bulk_samples_count = split_bulk_gpd(
+        bool_split_tensor, tail_samples_count, bulk_samples_count = split_bulk_gpd(
             tail_threshold = self.tail_threshold,
             y_input = self.y_input,
             y_batch_size = self.y_batchsize,
@@ -249,20 +289,19 @@ class ConditionalEMM():
             dtype = self.dtype,
         )
 
+        # define final mixture probability tensors
         self.pdf = mixture_prob(
             bool_split_tensor = bool_split_tensor,
             gpd_prob_t = gpd_prob_t,
             bulk_prob_t = bulk_prob_t,
             dtype = self.dtype,
         )
-
         self.log_pdf =  mixture_log_prob(
             bool_split_tensor = bool_split_tensor,
             gpd_prob_t = gpd_prob_t,
             bulk_prob_t = bulk_prob_t,
             dtype = self.dtype,
         )
-
         self.ecdf = tf.constant(1.00,dtype=self.dtype) - mixture_tail_prob(
             bool_split_tensor = bool_split_tensor,
             gpd_tail_prob_t = gpd_tail_prob_t,
@@ -271,16 +310,16 @@ class ConditionalEMM():
         )
 
         # these models are used for probability predictions
-        self.bulk_pred_model = keras.Model(
+        self.bulk_param_model = keras.Model(
             inputs=self.x_input,
             outputs=[
-                self.logits,
+                self.weights,
                 self.locs,
                 self.scales,
             ],
-            name="bulk_pred_model",
+            name="bulk_param_model",
         )
-        self.gpd_pred_model = keras.Model(
+        self.gpd_param_model = keras.Model(
             inputs=self.x_input,
             outputs=[
                 self.tail_threshold,
@@ -288,18 +327,22 @@ class ConditionalEMM():
                 self.tail_scale,
                 self.norm_factor,
             ],
-            name="gpd_pred_model",
+            name="gpd_param_model",
         )
-        self.mixture_model = keras.Model(
+        self.full_prob_model = keras.Model(
             inputs=[
                 self.x_input,
                 self.y_input
             ],
             outputs=[
-                self.tail_samples_count, 
-                self.bulk_samples_count,
+                tf.cast(bool_split_tensor,dtype=self.dtype),
+                tf.cast(tf.logical_not(bool_split_tensor),dtype=self.dtype),
+                bulk_prob_t, 
+                gpd_prob_t,
+                tail_samples_count,
+                bulk_samples_count,
             ],
-            name="mixture_model",
+            name="full_prob_model",
         )
         self.prob_pred_model = keras.Model(
             inputs=[
@@ -313,9 +356,13 @@ class ConditionalEMM():
             ],
             name="prob_pred_model",
         )
+
+    
      
     def fit(self, 
         X, Y,
+        batch_size : int = 1000,
+        epochs : int = 10,
         learning_rate : float = 5e-3,
         weight_decay : float = 0.0,
         epsilon : float = 1e-8,
@@ -335,8 +382,8 @@ class ConditionalEMM():
         history = self.mlp.model.fit(
             X,
             Y,
-            batch_size=1000,
-            epochs=10,
+            batch_size=batch_size,
+            epochs=epochs,
             # We pass some validation for
             # monitoring validation loss and metrics
             # at the end of each epoch

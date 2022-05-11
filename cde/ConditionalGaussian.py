@@ -18,6 +18,9 @@ def gmm_nll_loss(centers):
         logits = y_pred[:,0:centers-1]
         locs = y_pred[:,centers:2*centers-1]
         scales = y_pred[:,2*centers:3*centers-1]
+
+        # very important line, was causing (batch_size,batch_size)
+        y_true = tf.squeeze(y_true)
         
         cat = tfd.Categorical(logits=logits,dtype=tf.float64)
         components = [tfd.Normal(loc=loc, scale=scale) for loc, scale
@@ -102,6 +105,10 @@ class ConditionalGMM():
                 name = 'gmm_keras_model',
                 input_shape=(self.x_dim),
                 output_layer_config={
+                    'mixture_weights': { 
+                        'slice_size' : self.centers,
+                        'slice_activation' : 'softmax',
+                    },
                     'mixture_locations': { 
                         'slice_size' : self.centers,
                         'slice_activation' : None,
@@ -109,10 +116,6 @@ class ConditionalGMM():
                     'mixture_scales': { 
                         'slice_size' : self.centers,
                         'slice_activation' : 'softplus',
-                    },
-                    'mixture_weights': { 
-                        'slice_size' : self.centers,
-                        'slice_activation' : 'softmax',
                     },
                 },
                 hidden_sizes=self.hidden_sizes,
@@ -134,7 +137,7 @@ class ConditionalGMM():
         self.x_input = self.mlp.input_layer
 
         # put mixture components together
-        self.logits = self.mlp.output_slices['mixture_weights']
+        self.weights = self.mlp.output_slices['mixture_weights']
         self.locs = self.mlp.output_slices['mixture_locations']
         self.scales = self.mlp.output_slices['mixture_scales']
 

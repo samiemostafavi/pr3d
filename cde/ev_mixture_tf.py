@@ -19,8 +19,8 @@ def gpd_prob(
     tail_threshold = tf.squeeze(tail_threshold)
     tail_param = tf.squeeze(tail_param)
     tail_scale = tf.squeeze(tail_scale)
-
-    # if zais are not zero
+    
+    # if tail_scale is not zero
     prob = tf.multiply(
         norm_factor,
         tf.multiply(
@@ -46,6 +46,7 @@ def gpd_prob(
             ),
         ),
     )
+
     return tf.squeeze(prob)
 
 def gpd_tail_prob(
@@ -68,7 +69,7 @@ def gpd_tail_prob(
     tail_param = tf.squeeze(tail_param)
     tail_scale = tf.squeeze(tail_scale)
 
-    # if zais are not zero
+    # if tail_scale is not zero
     tail_prob = tf.multiply(
         norm_factor,
         tf.pow(
@@ -85,6 +86,7 @@ def gpd_tail_prob(
             ),
         )
     )
+
     return tf.squeeze(tail_prob)
 
 def gpd_log_prob( 
@@ -167,9 +169,12 @@ def mixture_prob(
     multiplexed_gpd_prob = tf.multiply(gpd_prob_t,gpd_multiplexer)
     multiplexed_bulk_prob = tf.multiply(bulk_prob_t,bulk_multiplexer)
 
-    return tf.add(
-        multiplexed_gpd_prob,
-        multiplexed_bulk_prob,
+    return tf.reduce_sum(
+        tf.stack([
+            multiplexed_gpd_prob,
+            multiplexed_bulk_prob,
+        ]),
+        axis=0,
     )
 
 def mixture_log_prob(
@@ -178,6 +183,7 @@ def mixture_log_prob(
     bulk_prob_t,
     dtype: tf.DType,
 ):
+
     return tf.math.log(
         mixture_prob(
             bool_split_tensor=bool_split_tensor,
