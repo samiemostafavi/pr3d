@@ -3,12 +3,13 @@ import numpy as np
 from cde import ConditionalEMM
 from cde import create_dataset
 
+dtype = 'float64', # 'float32' or 'float16'
 
 emm_model = ConditionalEMM(
     centers = 2,
     x_dim = 3,
     hidden_sizes = (16,16),
-    dtype = 'float64', # 'float32' or 'float16'
+    dtype = dtype,
 )
 
 np.random.seed(0)

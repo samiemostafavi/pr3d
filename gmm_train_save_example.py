@@ -3,6 +3,7 @@ import numpy as np
 from cde import ConditionalGMM
 from cde import create_dataset
 
+dtype = 'float64', # 'float32' or 'float16'
 
 gmm_model = ConditionalGMM(
     centers = 8,
@@ -12,7 +13,7 @@ gmm_model = ConditionalGMM(
 )
 
 np.random.seed(0)
-X,Y = create_dataset(n_samples = 10000, x_dim = 3)
+X,Y = create_dataset(n_samples = 10000, x_dim = 3, dtype = dtype)
 print("X shape: {0}".format(X.shape))
 print("Y shape: {0}".format(Y.shape))
 
