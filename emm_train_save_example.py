@@ -17,7 +17,6 @@ X,Y = create_dataset(n_samples = 10000, x_dim = 3, dtype = dtype)
 print("X shape: {0}".format(X.shape))
 print("Y shape: {0}".format(Y.shape))
 
-
 # train the model
 emm_model.fit(
     X,Y,

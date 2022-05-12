@@ -9,7 +9,7 @@ gmm_model = ConditionalGMM(
     centers = 8,
     x_dim = 3,
     hidden_sizes = (16,16),
-    dtype = 'float64', # 'float32' or 'float16'
+    dtype = dtype,
 )
 
 np.random.seed(0)
