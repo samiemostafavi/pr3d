@@ -104,9 +104,6 @@ class ConditionalEMM():
                 self.x_dim = hf.get('x_dim')
                 self.hidden_sizes = hf.get('hidden_sizes')
 
-            # first, read ConditionalGMM parameters from h5 file
-            self.centers = 8
-
             # load the keras model
             loaded_mlp_model = keras.models.load_model(h5_addr, custom_objects={ 'loss' : emm_nll_loss(self.centers,self.dtype) })
             #self._model.summary()
@@ -364,12 +361,11 @@ class ConditionalEMM():
         learning_rate : float = 5e-3,
         weight_decay : float = 0.0,
         epsilon : float = 1e-8,
-        dtype = np.float64,
     ):
 
-        learning_rate = np.cast[dtype](learning_rate)
-        weight_decay = np.cast[dtype](weight_decay)
-        epsilon = np.cast[dtype](epsilon)
+        learning_rate = np.cast[self.dtype.as_numpy_dtype](learning_rate)
+        weight_decay = np.cast[self.dtype.as_numpy_dtype](weight_decay)
+        epsilon = np.cast[self.dtype.as_numpy_dtype](epsilon)
 
         # define optimizer and train_step
         optimizer = tfa.optimizers.AdamW(learning_rate=learning_rate, weight_decay=weight_decay, epsilon=epsilon)

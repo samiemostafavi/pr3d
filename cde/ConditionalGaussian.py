@@ -11,18 +11,18 @@ tfd = tfp.distributions
 from .CoreNetwork import MLP
 
 
-def gmm_nll_loss(centers):
+def gmm_nll_loss(centers,dtype):
     # Gaussian mixture network negative log likelihood loss
     def loss(y_true, y_pred):
         # y_pred is the concatenated mixture_weights, mixture_locations, and mixture_scales
-        logits = y_pred[:,0:centers-1]
+        weights = y_pred[:,0:centers-1]
         locs = y_pred[:,centers:2*centers-1]
         scales = y_pred[:,2*centers:3*centers-1]
 
         # very important line, was causing (batch_size,batch_size)
         y_true = tf.squeeze(y_true)
         
-        cat = tfd.Categorical(logits=logits,dtype=tf.float64)
+        cat = tfd.Categorical(probs=weights,dtype=dtype)
         components = [tfd.Normal(loc=loc, scale=scale) for loc, scale
                         in zip(tf.unstack(locs, axis=1), tf.unstack(scales, axis=1))]
 
@@ -42,7 +42,21 @@ class ConditionalGMM():
         centers : int = 8,
         x_dim : int = 3,
         hidden_sizes : tuple = (16,16),
+        dtype : str = 'float64',
     ):
+
+        # configure keras to use dtype
+        tf.keras.backend.set_floatx(dtype)
+
+        # for creating the tensors
+        if dtype == 'float64':
+            self.dtype = tf.float64
+        elif dtype == 'float32':
+            self.dtype = tf.float32
+        elif dtype == 'float16':
+            self.dtype = tf.float16
+        else:
+            raise Exception("unknown dtype format")
 
         if h5_addr is not None:
             # read side parameters
@@ -50,9 +64,6 @@ class ConditionalGMM():
                 self.centers = hf.get('centers')
                 self.x_dim = hf.get('x_dim')
                 self.hidden_sizes = hf.get('hidden_sizes')
-
-            # first, read ConditionalGMM parameters from h5 file
-            self.centers = 8
 
             # load the keras model
             loaded_mlp_model = keras.models.load_model(h5_addr, custom_objects={ 'loss' : gmm_nll_loss(self.centers) })
@@ -120,7 +131,7 @@ class ConditionalGMM():
                 },
                 hidden_sizes=self.hidden_sizes,
                 hidden_activation='tanh',
-                dtype=tf.dtypes.float64,
+                dtype=self.dtype,
             )  
         #self.mlp.model.summary()    
 
@@ -130,7 +141,7 @@ class ConditionalGMM():
         self.y_input = keras.Input(
                 name = "y_input",
                 shape=(1),
-                dtype=tf.float64,
+                dtype=self.dtype,
         )
 
         # define X input
@@ -141,7 +152,7 @@ class ConditionalGMM():
         self.locs = self.mlp.output_slices['mixture_locations']
         self.scales = self.mlp.output_slices['mixture_scales']
 
-        cat = tfd.Categorical(logits=self.logits,dtype=tf.float64)
+        cat = tfd.Categorical(probs=self.weights,dtype=self.dtype)
         components = [tfd.Normal(loc=loc, scale=scale) for loc, scale
                         in zip(tf.unstack(self.locs, axis=1), tf.unstack(self.scales, axis=1))]
         mixture = tfd.Mixture(cat=cat, components=components)
@@ -152,27 +163,33 @@ class ConditionalGMM():
         self.ecdf = mixture.cdf(self.y_input)
 
         # these models are used for probability predictions
-        self.theta_pred_model = keras.Model(inputs=self.x_input,outputs=[self.logits,self.locs,self.scales],name="theta_pred_model")
+        self.theta_pred_model = keras.Model(inputs=self.x_input,outputs=[self.weights,self.locs,self.scales],name="theta_pred_model")
         self.prob_pred_model = keras.Model(inputs=[self.x_input,self.y_input],outputs=[self.pdf,self.log_pdf,self.ecdf],name="prob_pred_model")
      
     def fit(self, 
         X, Y,
+        batch_size : int = 1000,
+        epochs : int = 10,
         learning_rate : float = 5e-3,
         weight_decay : float = 0.0,
         epsilon : float = 1e-8,
     ):
+
+        learning_rate = np.cast[self.dtype.as_numpy_dtype](learning_rate)
+        weight_decay = np.cast[self.dtype.as_numpy_dtype](weight_decay)
+        epsilon = np.cast[self.dtype.as_numpy_dtype](epsilon)
         
         # define optimizer and train_step
         optimizer = tfa.optimizers.AdamW(learning_rate=learning_rate, weight_decay=weight_decay, epsilon=epsilon)
 
         # this keras model is the one that we use for training
-        self.mlp.model.compile(optimizer=optimizer, loss=gmm_nll_loss(self.centers))
+        self.mlp.model.compile(optimizer=optimizer, loss=gmm_nll_loss(self.centers,self.dtype))
 
         history = self.mlp.model.fit(
             X,
             Y,
-            batch_size=1000,
-            epochs=10,
+            batch_size=batch_size,
+            epochs=epochs,
             # We pass some validation for
             # monitoring validation loss and metrics
             # at the end of each epoch

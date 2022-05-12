@@ -8,6 +8,7 @@ gmm_model = ConditionalGMM(
     centers = 8,
     x_dim = 3,
     hidden_sizes = (16,16),
+    dtype = 'float64', # 'float32' or 'float16'
 )
 
 np.random.seed(0)
@@ -18,9 +19,11 @@ print("Y shape: {0}".format(Y.shape))
 # train the model
 gmm_model.fit(
     X,Y,
-    learning_rate = 1e-2,
+    batch_size = 10000, # 1000
+    epochs = 1000, # 10
+    learning_rate = 5e-2,
     weight_decay = 0.0,
-    epsilon = 1e-8
+    epsilon = 1e-8,
 )
 
 print("Single test x: {0}, and y: {1}".format(X[10,:],Y[10]))
