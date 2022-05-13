@@ -9,11 +9,3 @@ tensorflow-probability==0.16.0
 tensorflow-addons==0.16.1
 pandas
 seaborn
-
-pytest
-scikit_learn
-git+https://github.com/jonasrothfuss/ml_logger.git
-statsmodels
-sphinx_rtd_theme
-progressbar2
-xlrd

@@ -3,7 +3,7 @@ import numpy as np
 from cde import ConditionalGMM
 from cde import create_dataset
 
-dtype = 'float64', # 'float32' or 'float16'
+dtype = 'float64' # 'float32' or 'float16'
 
 gmm_model = ConditionalGMM(
     centers = 8,
