@@ -8,4 +8,6 @@ tensorflow==2.8.0
 tensorflow-probability==0.16.0
 tensorflow-addons==0.16.1
 pandas
-seaborn
+seaborn==0.11.2
+pyarrow
+

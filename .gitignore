@@ -139,3 +139,5 @@ dmypy.json
 
 # custom
 *.h5
+*.png
+*.parquet

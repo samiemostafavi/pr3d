@@ -46,7 +46,8 @@ def emm_nll_loss(centers,dtype):
         )
 
         # find the normalization factor
-        norm_factor = tf.constant(1.00,dtype=dtype)-mixture.cdf(tail_threshold)
+        #norm_factor = tf.constant(1.00,dtype=dtype)-mixture.cdf(tf.squeeze(tail_threshold))
+        norm_factor = tf.constant(1.00,dtype=dtype)-mixture.cdf(tf.squeeze(tail_threshold))
 
         # define bulk probabilities
         bulk_prob_t = mixture.prob(y_true)
@@ -162,22 +163,23 @@ class ConditionalEMM():
 
 
 
-    def prob_batch(self, x : npt.NDArray[np.float64], y : npt.NDArray[np.float64]):
-
+    def prob_batch(self, x : npt.NDArray[np.float64] , y : npt.NDArray[np.float64]):
+        
         # for large batches of input x
-        # x : np.array of np.float64 with the shape (?,ndim)
-        # y : np.array of np.float64 with the shape (?)
+        # x : np.array of np.float64 with the shape (batch_size,ndim)
+        # y : np.array of np.float64 with the shape (batch_size,1)
+
         [pdf,log_pdf,ecdf] = self.prob_pred_model.predict(
             [x,y],
-            batch_size=None,
-            verbose=0,
-            steps=None,
-            callbacks=None,
-            max_queue_size=10,
-            workers=1,
-            use_multiprocessing=False,
+            #batch_size=None,
+            #verbose=0,
+            #steps=None,
+            #callbacks=None,
+            #max_queue_size=10,
+            #workers=1,
+            #use_multiprocessing=False,
         )
-        return pdf,log_pdf,ecdf
+        return np.squeeze(pdf),np.squeeze(log_pdf),np.squeeze(ecdf)
 
 
     def create_model(self, loaded_mlp_model : keras.Model = None):
@@ -218,26 +220,18 @@ class ConditionalEMM():
                 },
                 hidden_sizes=self.hidden_sizes,
                 hidden_activation='tanh',
+                #batch_size= 100,
                 dtype=self.dtype,
             )  
         #self.mlp.model.summary()
 
+
         # now lets define the models to get probabilities
-
-        # define Y input
-        self.y_input = keras.Input(
-                name = "y_input",
-                shape=(1),
-                dtype=self.dtype,
-        )
-
-        # create batch size tensor
-        self.y_batchsize = tf.cast(tf.size(self.y_input),dtype=self.dtype)
 
         # define X input
         self.x_input = self.mlp.input_layer
 
-        # put mixture components together
+        # put mixture components together (from X)
         self.weights = self.mlp.output_slices['mixture_weights']
         self.locs = self.mlp.output_slices['mixture_locations']
         self.scales = self.mlp.output_slices['mixture_scales']
@@ -245,12 +239,28 @@ class ConditionalEMM():
         self.tail_threshold = self.mlp.output_slices['tail_threshold']
         self.tail_scale = self.mlp.output_slices['tail_scale']
 
+        # form the bulk density function (from X)
         cat = tfd.Categorical(probs=self.weights,dtype=self.dtype)
         components = [tfd.Normal(loc=loc, scale=scale) for loc, scale
                         in zip(tf.unstack(self.locs, axis=1), tf.unstack(self.scales, axis=1))]
         mixture = tfd.Mixture(cat=cat, components=components)
 
-        # split the values into buld and tail according to the tail
+        # find the normalization factor (from X)
+        # squeezing the tail_threshold was important
+        self.norm_factor = tf.constant(1.00,dtype=self.dtype)-mixture.cdf(tf.squeeze(self.tail_threshold))
+
+        # define Y input
+        self.y_input = keras.Input(
+                name = "y_input",
+                shape=(1),
+                #batch_size = 100,
+                dtype=self.dtype,
+        )
+
+        # create batch size tensor (from Y)
+        self.y_batchsize = tf.cast(tf.size(self.y_input),dtype=self.dtype)
+
+        # split the values into bulk and tail according to the tail_threshold (from X and Y)
         bool_split_tensor, tail_samples_count, bulk_samples_count = split_bulk_gpd(
             tail_threshold = self.tail_threshold,
             y_input = self.y_input,
@@ -258,21 +268,19 @@ class ConditionalEMM():
             dtype = self.dtype,
         )
 
-        # find the normalization factor
-        self.norm_factor = tf.constant(1.00,dtype=self.dtype)-mixture.cdf(self.tail_threshold)
-
-        # define bulk probabilities
-        bulk_prob_t = mixture.prob(self.y_input)
-        bulk_cdf_t = mixture.cdf(self.y_input)
+        # define bulk probabilities (from X and Y)
+        bulk_prob_t = mixture.prob(tf.squeeze(self.y_input))
+        bulk_cdf_t = mixture.cdf(tf.squeeze(self.y_input))
         bulk_tail_prob_t = tf.constant(1.00,dtype=self.dtype)-bulk_cdf_t
 
-        # define GPD probabilities
+
+        # define GPD probabilities (from X and Y)
         gpd_prob_t = gpd_prob(
             tail_threshold=self.tail_threshold,
             tail_param = self.tail_param,
             tail_scale = self.tail_scale,
             norm_factor = self.norm_factor,
-            y_input = self.y_input,
+            y_input = tf.squeeze(self.y_input),
             dtype = self.dtype,
         )
         gpd_tail_prob_t = gpd_tail_prob(
@@ -280,17 +288,18 @@ class ConditionalEMM():
             tail_param = self.tail_param,
             tail_scale = self.tail_scale,
             norm_factor = self.norm_factor,
-            y_input = self.y_input,
+            y_input = tf.squeeze(self.y_input),
             dtype = self.dtype,
         )
 
-        # define final mixture probability tensors
+        # define final mixture probability tensors (from X and Y)
         self.pdf = mixture_prob(
             bool_split_tensor = bool_split_tensor,
             gpd_prob_t = gpd_prob_t,
             bulk_prob_t = bulk_prob_t,
             dtype = self.dtype,
         )
+
         self.log_pdf =  mixture_log_prob(
             bool_split_tensor = bool_split_tensor,
             gpd_prob_t = gpd_prob_t,
@@ -339,6 +348,7 @@ class ConditionalEMM():
             ],
             name="full_prob_model",
         )
+
         self.prob_pred_model = keras.Model(
             inputs=[
                 self.x_input,

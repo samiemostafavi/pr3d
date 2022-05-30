@@ -16,6 +16,7 @@ class MLP():
         bias_initializer = 'zeros',
         dropout_ph=None,
         loaded_mlp_model : keras.Model = None,
+        batch_size = None,
     ):
         """
         :param dropout_ph: None if no dropout should be used. Else a scalar placeholder that determines the prob of dropping a node.
@@ -46,7 +47,7 @@ class MLP():
             self._input_layer = keras.Input(
                     name = "input",
                     shape=input_shape,
-                    #batch_size=10000,
+                    batch_size=batch_size,
                     dtype=dtype,
             )
 

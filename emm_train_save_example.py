@@ -20,7 +20,7 @@ print("Y shape: {0}".format(Y.shape))
 # train the model
 emm_model.fit(
     X,Y,
-    batch_size = 10000, # 1000
+    batch_size = 20000, # 1000
     epochs = 1000, # 10
     learning_rate = 5e-2,
     weight_decay = 0.0,
