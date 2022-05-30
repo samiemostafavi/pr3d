@@ -5,7 +5,7 @@ import pyarrow.compute as pc
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-from cde import ConditionalEMM
+from cde import ConditionalGammaEMM
 
 # load dataset first
 file_addresses = ['dataset.parquet']
@@ -19,12 +19,12 @@ print(df)
 
 # load the trained model
 dtype = 'float64'
-emm_model = ConditionalEMM(
-    h5_addr = "emm_model.h5",
+emm_model = ConditionalGammaEMM(
+    h5_addr = "gemm_model.h5",
 )
 
 # find 10 most common queue_length occurances
-n = 4; n1 = 2; n2 = 2
+n = 9; n1 = 3; n2 = 3
 
 values_count = df[['queue_length1','queue_length2','queue_length3']].value_counts()[:n].index.tolist()
 print("{0} most common queue states: {1}".format(n,values_count))
