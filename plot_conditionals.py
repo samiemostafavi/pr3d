@@ -5,7 +5,7 @@ import pyarrow.compute as pc
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-from cde import ConditionalGammaEMM
+from cde import ConditionalGammaEVM
 
 # load dataset first
 file_addresses = ['dataset.parquet']
@@ -19,12 +19,12 @@ print(df)
 
 # load the trained model
 dtype = 'float64'
-emm_model = ConditionalGammaEMM(
+emm_model = ConditionalGammaEVM(
     h5_addr = "gemm_model.h5",
 )
 
 # find 10 most common queue_length occurances
-n = 9; n1 = 3; n2 = 3
+n = 4; n1 = 2; n2 = 2
 
 values_count = df[['queue_length1','queue_length2','queue_length3']].value_counts()[:n].index.tolist()
 print("{0} most common queue states: {1}".format(n,values_count))
@@ -34,7 +34,7 @@ print("{0} most common queue states: {1}".format(n,values_count))
 fig, axes = plt.subplots(ncols=n1, nrows=n2)
 
 for i, ax in zip(range(n), axes.flat):
-    # first, empirical histogram
+    # first, plot empirical histogram
     conditional_df = df[
         (df.queue_length1==values_count[i][0]) & 
         (df.queue_length2==values_count[i][1]) & 
@@ -48,7 +48,7 @@ for i, ax in zip(range(n), axes.flat):
     ).set(title="x={0}, count={1}".format(values_count[i],len(conditional_df)))
     ax.title.set_size(10)
 
-    # then, predictions
+    # then, plot predictions
     x_cond = [values_count[i][0],values_count[i][1],values_count[i][2]]
     y0, y1 = ax.get_xlim()  # extract the y endpoints
     y_lin = np.linspace(y0, y1, 100, dtype=dtype)

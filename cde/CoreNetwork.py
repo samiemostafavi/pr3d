@@ -107,3 +107,86 @@ class MLP():
     @property
     def model(self):
         return self._model
+
+
+# Single Layer Perceptron
+class SLP():
+
+    def __init__(
+        self,
+        name : str = 'mlp',
+        layer_config : dict = None,
+        dtype = tf.dtypes.float64,
+        kernel_initializer = 'glorot_uniform',
+        bias_initializer = 'zeros',
+        loaded_slp_model : keras.Model = None,
+        batch_size = None,
+    ):
+        """
+        Remember to set placeholder to Zero during test / eval
+        """
+
+        if loaded_slp_model is not None:
+            # set the model
+            self._model = loaded_slp_model
+
+            # find the input and output layers
+            self._input_layer = self._model.input
+            self._output_layer = self._model.get_layer('output')
+
+            # find slice layer names
+            slice_names = []
+            int_node = self._output_layer._inbound_nodes[0]
+            for idx, layer in enumerate(int_node.inbound_layers):
+                slice_names.append(layer.name)
+
+            # create output layer by concatenating slices
+            self._output_slices = {}
+            for slice_name in slice_names:
+                self._output_slices[slice_name] = self._model.get_layer(slice_name).output
+
+        else:
+
+            # Using functional API of keras
+            self._input_layer = keras.Input(
+                    name = "input",
+                    shape=(1),
+                    batch_size=batch_size,
+                    dtype=dtype,
+            )
+
+            # create the single layer by concatenating slices
+            self._output_slices = {}
+            slices = []
+            for slice_name in layer_config:
+                slice_dense = layers.Dense(
+                    name=slice_name,
+                    units=layer_config[slice_name]['slice_size'],
+                    activation=layer_config[slice_name]['slice_activation'],
+                    kernel_initializer=kernel_initializer,
+                    bias_initializer=bias_initializer,
+                    dtype=dtype,
+                )
+                self._output_slices[slice_name] = slice_dense(self._input_layer)
+                slices.append(self._output_slices[slice_name])
+
+            # connect output layer
+            self._output_layer = layers.Concatenate(name='output')(slices)
+            # print(self._output_layer)
+
+            # create model
+            self._model = keras.Model(inputs=self._input_layer,outputs=self._output_layer,name=name)
+            #self._model.summary()
+
+
+    @property
+    def input_layer(self):
+        return self._input_layer
+
+    @property
+    def output_slices(self):
+        return self._output_slices
+
+    @property
+    def model(self):
+        return self._model

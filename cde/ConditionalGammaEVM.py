@@ -11,68 +11,10 @@ tfd = tfp.distributions
 from .CoreNetwork import MLP
 from .ev_mixture_tf import *
 
+# in order to use tfd.Gamma.quantile
+tf.compat.v1.disable_eager_execution()
 
-
-def gemm_nll_loss(dtype):
-    # Gamma network + GPD (Extreme mixture model) negative log likelihood loss
-    def loss(y_true, y_pred):
-
-        # y_pred is the concatenated mixture_weights, mixture_locations, and mixture_scales
-        gamma_shape = y_pred[:,0]
-        gamma_rate = y_pred[:,1]
-        tail_param = y_pred[:,2]
-        tail_threshold = y_pred[:,3]
-        tail_scale = y_pred[:,4]
-
-        # very important line, was causing (batch_size,batch_size)
-        y_true = tf.squeeze(y_true)
-
-        # find y_batchsize
-        y_batchsize = tf.cast(tf.size(y_true),dtype=dtype)
-
-        # build gamma density
-        gamma = tfd.Gamma(concentration=gamma_shape, rate=gamma_rate)
-
-        # split the values into bulk and tail according to the threshold
-        bool_split_tensor, tail_samples_count, bulk_samples_count = split_bulk_gpd(
-            tail_threshold = tail_threshold,
-            y_input = y_true,
-            y_batch_size = y_batchsize,
-            dtype = dtype,
-        )
-
-        # find the normalization factor
-        #norm_factor = tf.constant(1.00,dtype=dtype)-mixture.cdf(tf.squeeze(tail_threshold))
-        norm_factor = tf.constant(1.00,dtype=dtype)-gamma.cdf(tf.squeeze(tail_threshold))
-
-        # define bulk probabilities
-        bulk_prob_t = gamma.prob(y_true)
-
-        # define GPD log probability
-        gpd_prob_t = gpd_prob(
-            tail_threshold=tail_threshold,
-            tail_param = tail_param,
-            tail_scale = tail_scale,
-            norm_factor = norm_factor,
-            y_input = y_true,
-            dtype = dtype,
-        )
-
-        # define logpdf and loglikelihood
-        log_pdf_ = mixture_log_prob(
-            bool_split_tensor = bool_split_tensor,
-            gpd_prob_t = gpd_prob_t,
-            bulk_prob_t = bulk_prob_t,
-            dtype = dtype,
-        )
-
-        log_likelihood_ = tf.reduce_sum(log_pdf_)
-        return -log_likelihood_
-
-    return loss
-
-
-class ConditionalGammaEMM():
+class ConditionalGammaEVM():
     def __init__(
         self,
         h5_addr : str = None,
@@ -100,7 +42,7 @@ class ConditionalGammaEMM():
                 self.hidden_sizes = hf.get('hidden_sizes')
 
             # load the keras model
-            loaded_mlp_model = keras.models.load_model(h5_addr, custom_objects={ 'loss' : gemm_nll_loss(self.dtype) })
+            loaded_mlp_model = keras.models.load_model(h5_addr, custom_objects={ 'loss' : gevm_nll_loss(self.dtype) })
             #self._model.summary()
 
             # create the model
@@ -114,19 +56,21 @@ class ConditionalGammaEMM():
             self.create_model()
 
     def verbose_param_batch(self, x : npt.NDArray[np.float64]):
-        # for single value x (not batch)
+
+        # y : np.float64 number
         # x : np.array of np.float64 with the shape (ndim)
         [gamma_shape,gamma_rate] = self.bulk_param_model.predict(x)
-        [tail_threshold,tail_param,tail_scale,norm_factor] = self.gpd_param_model.predict(x)
+        [tail_threshold,tail_param,tail_scale] = self.gpd_param_model.predict(x)
+        norm_factor = self.norm_factor_model.predict(x)
 
-        return (
-            np.squeeze(gamma_shape),
-            np.squeeze(gamma_rate),
-            np.squeeze(tail_threshold),
-            np.squeeze(tail_param),
-            np.squeeze(tail_scale),
-            np.squeeze(norm_factor),
-        )
+        return {
+            "gamma_shape" : np.squeeze(gamma_shape),
+            "gamma_rate" : np.squeeze(gamma_rate),
+            "tail_threshold" : np.squeeze(tail_threshold),
+            "tail_param" : np.squeeze(tail_param),
+            "tail_scale" : np.squeeze(tail_scale),
+            "norm_factor": np.squeeze(norm_factor),
+        }
 
     def verbose_prob_batch(self, x : npt.NDArray[np.float64], y : np.float64):
         [gpd_multiplexer,
@@ -147,15 +91,21 @@ class ConditionalGammaEMM():
 
     def prob_single(self, x : npt.NDArray[np.float64], y : np.float64) -> Tuple[np.float64, np.float64, np.float64]:
 
-        # for single value x (not batch)
-        # x : np.array of np.float64 with the shape (ndim)
+        # for np.array of np.float64 with the shape (ndim)
         # y : np.float64 number
-        [pdf,log_pdf,ecdf] = self.prob_pred_model([np.expand_dims(x, axis=0),np.expand_dims(y, axis=0)], training=False)
-        return np.squeeze(pdf.numpy()),np.squeeze(log_pdf.numpy()),np.squeeze(ecdf.numpy())
+        [pdf,log_pdf,ecdf] = self.prob_pred_model.predict(
+            [np.expand_dims(x, axis=0), np.expand_dims(y, axis=0)],
+            #batch_size=None,
+            #verbose=0,
+            #steps=None,
+            #callbacks=None,
+            #max_queue_size=10,
+            #workers=1,
+            #use_multiprocessing=False,
+        )
+        return np.squeeze(pdf),np.squeeze(log_pdf),np.squeeze(ecdf)
 
-
-
-    def prob_batch(self, x : npt.NDArray[np.float64] , y : npt.NDArray[np.float64]):
+    def prob_batch(self, x : npt.NDArray[np.float64], y : npt.NDArray[np.float64]):
         
         # for large batches of input x
         # x : np.array of np.float64 with the shape (batch_size,ndim)
@@ -173,6 +123,26 @@ class ConditionalGammaEMM():
         )
         return np.squeeze(pdf),np.squeeze(log_pdf),np.squeeze(ecdf)
 
+    def sample_n(self,
+        x : npt.NDArray[np.float64],
+        random_generator: np.random.Generator = np.random.default_rng(),
+    ) -> npt.NDArray[np.float64]:
+
+        # generate n=len(x) random numbers uniformly distributed on [0,1]
+        y = random_generator.uniform(0,1,len(x))
+
+        # pass them to the sample generator model
+        samples = self.sample_model.predict(
+            [x,y],
+            #batch_size=None,
+            #verbose=0,
+            #steps=None,
+            #callbacks=None,
+            #max_queue_size=10,
+            #workers=1,
+            #use_multiprocessing=False,
+        )
+        return np.squeeze(samples)
 
     def create_model(self, loaded_mlp_model : keras.Model = None):
 
@@ -297,7 +267,7 @@ class ConditionalGammaEMM():
             dtype = self.dtype,
         )
 
-        # these models are used for probability predictions
+        # these models are used for printing paramters
         self.bulk_param_model = keras.Model(
             inputs=self.x_input,
             outputs=[
@@ -312,10 +282,18 @@ class ConditionalGammaEMM():
                 self.tail_threshold,
                 self.tail_param,
                 self.tail_scale,
-                self.norm_factor,
             ],
             name="gpd_param_model",
         )
+        self.norm_factor_model = keras.Model(
+            inputs=self.x_input,
+            outputs=[
+                tf.expand_dims(self.norm_factor, axis=0), # very important "expand_dims"
+            ],
+            name="norm_factor_model",
+        )
+
+        # these models are used for probability predictions
         self.full_prob_model = keras.Model(
             inputs=[
                 self.x_input,
@@ -345,6 +323,62 @@ class ConditionalGammaEMM():
             name="prob_pred_model",
         )
 
+        # create the sampling model
+        # sample_input: random uniform numbers in [0,1]
+        # feed them to the inverse cdf of the distribution
+
+        # we use the threshold in CDF domain which is norm_factor and create cdf_bool_split_t
+        # split sample_input into the ones greater or smaller than norm_factor
+        # feed smallers to the icdf of Gamma, feed larger values to the icdf of GPD
+
+        # define random input
+        self.sample_input = keras.Input(
+                name = "sample_input",
+                shape=(1),
+                #batch_size = 100,
+                dtype=self.dtype,
+        )
+
+        # split the samples into bulk and tail according to the norm_factor (from X and Y)
+        cdf_bool_split_t = split_bulk_gpd_cdf(
+            norm_factor = tf.constant(1.00,dtype=self.dtype)-self.norm_factor,
+            random_input = self.sample_input,
+            dtype = self.dtype,
+        )
+
+        # get gpd samples
+        gpd_sample_t = gpd_quantile(
+            tail_threshold = self.tail_threshold,
+            tail_param = self.tail_param,
+            tail_scale = self.tail_scale,
+            norm_factor = self.norm_factor,
+            random_input = tf.squeeze(self.sample_input),
+            dtype = self.dtype,
+        )
+
+        # get bulk samples
+        bulk_sample_t = gamma.quantile(
+            tf.squeeze(self.sample_input)
+        )
+
+        # pass them through the mixture filter
+        self.sample = mixture_sample(
+            cdf_bool_split_t = cdf_bool_split_t,
+            gpd_sample_t = gpd_sample_t,
+            bulk_sample_t = bulk_sample_t,
+            dtype = self.dtype,
+        )
+
+        self.sample_model = keras.Model(
+            inputs=[
+                self.x_input,
+                self.sample_input,
+            ],
+            outputs=[
+                self.sample,
+            ],
+            name="sample_model",
+        )
     
      
     def fit(self, 
@@ -364,7 +398,7 @@ class ConditionalGammaEMM():
         optimizer = tfa.optimizers.AdamW(learning_rate=learning_rate, weight_decay=weight_decay, epsilon=epsilon)
 
         # this keras model is the one that we use for training
-        self.mlp.model.compile(optimizer=optimizer, loss=gemm_nll_loss(self.dtype))
+        self.mlp.model.compile(optimizer=optimizer, loss=gevm_nll_loss(self.dtype))
 
         history = self.mlp.model.fit(
             X,
