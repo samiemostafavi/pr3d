@@ -4,7 +4,6 @@ import numpy as np
 import numpy.typing as npt
 import tensorflow_probability as tfp
 import tensorflow_addons as tfa
-import h5py
 from typing import Tuple
 tfd = tfp.distributions
 
