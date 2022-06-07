@@ -1,11 +1,11 @@
 import numpy as np
 
-from cde import ConditionalGMM
-from cde import create_dataset
+from pr3d.de import ConditionalGaussianMM
+from .dataset import create_dataset
 
 dtype = 'float64' # 'float32' or 'float16'
 
-gmm_model = ConditionalGMM(
+gmm_model = ConditionalGaussianMM(
     centers = 8,
     x_dim = 3,
     hidden_sizes = (16,16),

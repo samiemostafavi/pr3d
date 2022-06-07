@@ -1,9 +1,9 @@
 import numpy as np
 
-from cde import ConditionalGMM
-from cde import create_dataset
+from pr3d.de import ConditionalGaussianMM
+from .dataset import create_dataset
 
-gmm_model = ConditionalGMM(
+gmm_model = ConditionalGaussianMM(
     h5_addr = "gmm_model.h5",
 )
 gmm_model.mlp.model.summary()

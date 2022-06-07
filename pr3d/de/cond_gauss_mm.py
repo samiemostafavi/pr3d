@@ -8,7 +8,7 @@ import h5py
 from typing import Tuple
 tfd = tfp.distributions
 
-from .CoreNetwork import MLP
+from .core import MLP
 
 
 def gmm_nll_loss(centers,dtype):
@@ -35,7 +35,7 @@ def gmm_nll_loss(centers,dtype):
 
     return loss
 
-class ConditionalGMM():    
+class ConditionalGaussianMM():    
     def __init__(
         self,
         h5_addr : str = None,

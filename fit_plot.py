@@ -3,8 +3,8 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 import pandas as pd
 
-from cde import GammaEVM
-from cde import create_dataset, load_parquet
+from pr3d.de import GammaEVM
+from .dataset import create_dataset, load_parquet
 
 dtype = 'float64' # 'float32' or 'float16'
 

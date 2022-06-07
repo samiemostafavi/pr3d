@@ -7,8 +7,8 @@ import tensorflow as tf
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from cde import GammaEVM, ConditionalGammaEVM
-from cde import create_dataset, load_parquet
+from pr3d.de import GammaEVM, ConditionalGammaEVM
+from .dataset import create_dataset, load_parquet
 
 
 dtype = 'float64' # 'float32' or 'float16'

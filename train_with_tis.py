@@ -3,8 +3,8 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 import pandas as pd
 
-from cde import ConditionalGammaEVM, GammaEVM
-from cde import create_dataset, load_parquet
+from pr3d.de import ConditionalGammaEVM, GammaEVM
+from .dataset import create_dataset, load_parquet
 
 
 # load the fitted service delay model

@@ -8,79 +8,16 @@ import h5py
 from typing import Tuple
 tfd = tfp.distributions
 
-from .CoreNetwork import MLP
+from .core import MLP
 from .ev_mixture_tf import *
 
+# in order to use tfd.Gamma.quantile
+tf.compat.v1.disable_eager_execution()
 
-
-def emm_nll_loss(centers,dtype):
-    # Mixture network + GPD (Extreme mixture model) negative log likelihood loss
-    def loss(y_true, y_pred):
-
-        # y_pred is the concatenated mixture_weights, mixture_locations, and mixture_scales
-        weights = y_pred[:,0:centers-1]
-        locs = y_pred[:,centers:2*centers-1]
-        scales = y_pred[:,2*centers:3*centers-1]
-        tail_param = y_pred[:,3*centers]
-        tail_threshold = y_pred[:,3*centers+1]
-        tail_scale = y_pred[:,3*centers+2]
-
-        # very important line, was causing (batch_size,batch_size)
-        y_true = tf.squeeze(y_true)
-
-        # find y_batchsize
-        y_batchsize = tf.cast(tf.size(y_true),dtype=dtype)
-
-        # build mixture density
-        cat = tfd.Categorical(probs=weights,dtype=dtype)
-        components = [tfd.Normal(loc=loc, scale=scale) for loc, scale
-                        in zip(tf.unstack(locs, axis=1), tf.unstack(scales, axis=1))]
-        mixture = tfd.Mixture(cat=cat, components=components)
-
-        # split the values into bulk and tail according to the threshold
-        bool_split_tensor, tail_samples_count, bulk_samples_count = split_bulk_gpd(
-            tail_threshold = tail_threshold,
-            y_input = y_true,
-            y_batch_size = y_batchsize,
-            dtype = dtype,
-        )
-
-        # find the normalization factor
-        #norm_factor = tf.constant(1.00,dtype=dtype)-mixture.cdf(tf.squeeze(tail_threshold))
-        norm_factor = tf.constant(1.00,dtype=dtype)-mixture.cdf(tf.squeeze(tail_threshold))
-
-        # define bulk probabilities
-        bulk_prob_t = mixture.prob(y_true)
-
-        # define GPD log probability
-        gpd_prob_t = gpd_prob(
-            tail_threshold=tail_threshold,
-            tail_param = tail_param,
-            tail_scale = tail_scale,
-            norm_factor = norm_factor,
-            y_input = y_true,
-            dtype = dtype,
-        )
-
-        # define logpdf and loglikelihood
-        log_pdf_ = mixture_log_prob(
-            bool_split_tensor = bool_split_tensor,
-            gpd_prob_t = gpd_prob_t,
-            bulk_prob_t = bulk_prob_t,
-            dtype = dtype,
-        )
-
-        log_likelihood_ = tf.reduce_sum(log_pdf_)
-        return -log_likelihood_
-
-    return loss
-
-
-class ConditionalEMM():
+class ConditionalGammaEVM():
     def __init__(
         self,
         h5_addr : str = None,
-        centers : int = 8,
         x_dim : int = 3,
         hidden_sizes : tuple = (16,16),
         dtype : str = 'float64',
@@ -101,19 +38,17 @@ class ConditionalEMM():
         if h5_addr is not None:
             # read side parameters
             with h5py.File(h5_addr, 'r') as hf:
-                self.centers = hf.get('centers')
                 self.x_dim = hf.get('x_dim')
                 self.hidden_sizes = hf.get('hidden_sizes')
 
             # load the keras model
-            loaded_mlp_model = keras.models.load_model(h5_addr, custom_objects={ 'loss' : emm_nll_loss(self.centers,self.dtype) })
+            loaded_mlp_model = keras.models.load_model(h5_addr, custom_objects={ 'loss' : gevm_nll_loss(self.dtype) })
             #self._model.summary()
 
             # create the model
             self.create_model(loaded_mlp_model)
         else:
 
-            self.centers = centers
             self.x_dim = x_dim
             self.hidden_sizes = hidden_sizes
 
@@ -121,20 +56,21 @@ class ConditionalEMM():
             self.create_model()
 
     def verbose_param_batch(self, x : npt.NDArray[np.float64]):
-        # for single value x (not batch)
-        # x : np.array of np.float64 with the shape (ndim)
-        [weights,locs,scales] = self.bulk_param_model.predict(x)
-        [tail_threshold,tail_param,tail_scale,norm_factor] = self.gpd_param_model.predict(x)
 
-        return (
-            np.squeeze(weights),
-            np.squeeze(locs),
-            np.squeeze(scales),
-            np.squeeze(tail_threshold),
-            np.squeeze(tail_param),
-            np.squeeze(tail_scale),
-            np.squeeze(norm_factor),
-        )
+        # y : np.float64 number
+        # x : np.array of np.float64 with the shape (ndim)
+        [gamma_shape,gamma_rate] = self.bulk_param_model.predict(x)
+        [tail_threshold,tail_param,tail_scale] = self.gpd_param_model.predict(x)
+        norm_factor = self.norm_factor_model.predict(x)
+
+        return {
+            "gamma_shape" : np.squeeze(gamma_shape),
+            "gamma_rate" : np.squeeze(gamma_rate),
+            "tail_threshold" : np.squeeze(tail_threshold),
+            "tail_param" : np.squeeze(tail_param),
+            "tail_scale" : np.squeeze(tail_scale),
+            "norm_factor": np.squeeze(norm_factor),
+        }
 
     def verbose_prob_batch(self, x : npt.NDArray[np.float64], y : np.float64):
         [gpd_multiplexer,
@@ -155,15 +91,21 @@ class ConditionalEMM():
 
     def prob_single(self, x : npt.NDArray[np.float64], y : np.float64) -> Tuple[np.float64, np.float64, np.float64]:
 
-        # for single value x (not batch)
-        # x : np.array of np.float64 with the shape (ndim)
+        # for np.array of np.float64 with the shape (ndim)
         # y : np.float64 number
-        [pdf,log_pdf,ecdf] = self.prob_pred_model([np.expand_dims(x, axis=0),np.expand_dims(y, axis=0)], training=False)
-        return np.squeeze(pdf.numpy()),np.squeeze(log_pdf.numpy()),np.squeeze(ecdf.numpy())
+        [pdf,log_pdf,ecdf] = self.prob_pred_model.predict(
+            [np.expand_dims(x, axis=0), np.expand_dims(y, axis=0)],
+            #batch_size=None,
+            #verbose=0,
+            #steps=None,
+            #callbacks=None,
+            #max_queue_size=10,
+            #workers=1,
+            #use_multiprocessing=False,
+        )
+        return np.squeeze(pdf),np.squeeze(log_pdf),np.squeeze(ecdf)
 
-
-
-    def prob_batch(self, x : npt.NDArray[np.float64] , y : npt.NDArray[np.float64]):
+    def prob_batch(self, x : npt.NDArray[np.float64], y : npt.NDArray[np.float64]):
         
         # for large batches of input x
         # x : np.array of np.float64 with the shape (batch_size,ndim)
@@ -181,6 +123,26 @@ class ConditionalEMM():
         )
         return np.squeeze(pdf),np.squeeze(log_pdf),np.squeeze(ecdf)
 
+    def sample_n(self,
+        x : npt.NDArray[np.float64],
+        random_generator: np.random.Generator = np.random.default_rng(),
+    ) -> npt.NDArray[np.float64]:
+
+        # generate n=len(x) random numbers uniformly distributed on [0,1]
+        y = random_generator.uniform(0,1,len(x))
+
+        # pass them to the sample generator model
+        samples = self.sample_model.predict(
+            [x,y],
+            #batch_size=None,
+            #verbose=0,
+            #steps=None,
+            #callbacks=None,
+            #max_queue_size=10,
+            #workers=1,
+            #use_multiprocessing=False,
+        )
+        return np.squeeze(samples)
 
     def create_model(self, loaded_mlp_model : keras.Model = None):
 
@@ -193,16 +155,12 @@ class ConditionalEMM():
                 name = 'emm_keras_model',
                 input_shape=(self.x_dim),
                 output_layer_config={
-                    'mixture_weights': { 
-                        'slice_size' : self.centers,
-                        'slice_activation' : 'softmax',
+                    'gamma_shape': { 
+                        'slice_size' : 1,
+                        'slice_activation' : 'softplus',
                     },
-                    'mixture_locations': { 
-                        'slice_size' : self.centers,
-                        'slice_activation' : None,
-                    },
-                    'mixture_scales': { 
-                        'slice_size' : self.centers,
+                    'gamma_rate': { 
+                        'slice_size' : 1,
                         'slice_activation' : 'softplus',
                     },
                     'tail_parameter' : {
@@ -211,7 +169,7 @@ class ConditionalEMM():
                     },
                     'tail_threshold' : {
                         'slice_size' : 1,
-                        'slice_activation' : None,
+                        'slice_activation' : 'softplus',
                     },
                     'tail_scale' : {
                         'slice_size' : 1,
@@ -232,22 +190,18 @@ class ConditionalEMM():
         self.x_input = self.mlp.input_layer
 
         # put mixture components together (from X)
-        self.weights = self.mlp.output_slices['mixture_weights']
-        self.locs = self.mlp.output_slices['mixture_locations']
-        self.scales = self.mlp.output_slices['mixture_scales']
+        self.gamma_shape = self.mlp.output_slices['gamma_shape']
+        self.gamma_rate = self.mlp.output_slices['gamma_rate']
         self.tail_param = self.mlp.output_slices['tail_parameter']
         self.tail_threshold = self.mlp.output_slices['tail_threshold']
         self.tail_scale = self.mlp.output_slices['tail_scale']
 
-        # form the bulk density function (from X)
-        cat = tfd.Categorical(probs=self.weights,dtype=self.dtype)
-        components = [tfd.Normal(loc=loc, scale=scale) for loc, scale
-                        in zip(tf.unstack(self.locs, axis=1), tf.unstack(self.scales, axis=1))]
-        mixture = tfd.Mixture(cat=cat, components=components)
+        # build gamma density
+        gamma = tfd.Gamma(concentration=tf.squeeze(self.gamma_shape), rate=tf.squeeze(self.gamma_rate))
 
         # find the normalization factor (from X)
         # squeezing the tail_threshold was important
-        self.norm_factor = tf.constant(1.00,dtype=self.dtype)-mixture.cdf(tf.squeeze(self.tail_threshold))
+        self.norm_factor = tf.constant(1.00,dtype=self.dtype)-gamma.cdf(tf.squeeze(self.tail_threshold))
 
         # define Y input
         self.y_input = keras.Input(
@@ -269,8 +223,8 @@ class ConditionalEMM():
         )
 
         # define bulk probabilities (from X and Y)
-        bulk_prob_t = mixture.prob(tf.squeeze(self.y_input))
-        bulk_cdf_t = mixture.cdf(tf.squeeze(self.y_input))
+        bulk_prob_t = gamma.prob(tf.squeeze(self.y_input))
+        bulk_cdf_t = gamma.cdf(tf.squeeze(self.y_input))
         bulk_tail_prob_t = tf.constant(1.00,dtype=self.dtype)-bulk_cdf_t
 
 
@@ -313,13 +267,12 @@ class ConditionalEMM():
             dtype = self.dtype,
         )
 
-        # these models are used for probability predictions
+        # these models are used for printing paramters
         self.bulk_param_model = keras.Model(
             inputs=self.x_input,
             outputs=[
-                self.weights,
-                self.locs,
-                self.scales,
+                self.gamma_shape,
+                self.gamma_rate,
             ],
             name="bulk_param_model",
         )
@@ -329,10 +282,18 @@ class ConditionalEMM():
                 self.tail_threshold,
                 self.tail_param,
                 self.tail_scale,
-                self.norm_factor,
             ],
             name="gpd_param_model",
         )
+        self.norm_factor_model = keras.Model(
+            inputs=self.x_input,
+            outputs=[
+                tf.expand_dims(self.norm_factor, axis=0), # very important "expand_dims"
+            ],
+            name="norm_factor_model",
+        )
+
+        # these models are used for probability predictions
         self.full_prob_model = keras.Model(
             inputs=[
                 self.x_input,
@@ -362,6 +323,62 @@ class ConditionalEMM():
             name="prob_pred_model",
         )
 
+        # create the sampling model
+        # sample_input: random uniform numbers in [0,1]
+        # feed them to the inverse cdf of the distribution
+
+        # we use the threshold in CDF domain which is norm_factor and create cdf_bool_split_t
+        # split sample_input into the ones greater or smaller than norm_factor
+        # feed smallers to the icdf of Gamma, feed larger values to the icdf of GPD
+
+        # define random input
+        self.sample_input = keras.Input(
+                name = "sample_input",
+                shape=(1),
+                #batch_size = 100,
+                dtype=self.dtype,
+        )
+
+        # split the samples into bulk and tail according to the norm_factor (from X and Y)
+        cdf_bool_split_t = split_bulk_gpd_cdf(
+            norm_factor = tf.constant(1.00,dtype=self.dtype)-self.norm_factor,
+            random_input = self.sample_input,
+            dtype = self.dtype,
+        )
+
+        # get gpd samples
+        gpd_sample_t = gpd_quantile(
+            tail_threshold = self.tail_threshold,
+            tail_param = self.tail_param,
+            tail_scale = self.tail_scale,
+            norm_factor = self.norm_factor,
+            random_input = tf.squeeze(self.sample_input),
+            dtype = self.dtype,
+        )
+
+        # get bulk samples
+        bulk_sample_t = gamma.quantile(
+            tf.squeeze(self.sample_input)
+        )
+
+        # pass them through the mixture filter
+        self.sample = mixture_sample(
+            cdf_bool_split_t = cdf_bool_split_t,
+            gpd_sample_t = gpd_sample_t,
+            bulk_sample_t = bulk_sample_t,
+            dtype = self.dtype,
+        )
+
+        self.sample_model = keras.Model(
+            inputs=[
+                self.x_input,
+                self.sample_input,
+            ],
+            outputs=[
+                self.sample,
+            ],
+            name="sample_model",
+        )
     
      
     def fit(self, 
@@ -381,7 +398,7 @@ class ConditionalEMM():
         optimizer = tfa.optimizers.AdamW(learning_rate=learning_rate, weight_decay=weight_decay, epsilon=epsilon)
 
         # this keras model is the one that we use for training
-        self.mlp.model.compile(optimizer=optimizer, loss=emm_nll_loss(self.centers,self.dtype))
+        self.mlp.model.compile(optimizer=optimizer, loss=gevm_nll_loss(self.dtype))
 
         history = self.mlp.model.fit(
             X,
@@ -397,6 +414,5 @@ class ConditionalEMM():
     def save(self, h5_addr : str) -> None:
         self.mlp.model.save(h5_addr)
         with h5py.File(h5_addr, 'a') as hf:
-            hf.create_dataset('centers',self.centers)
             hf.create_dataset('x_dim',self.x_dim)
             hf.create_dataset('hidden_sizes',self.hidden_sizes)
