@@ -28,7 +28,7 @@ Implementation of two conditional density estimation methods with parametric neu
     pip install git+https://github.com/samiemostafavi/pr3d.git
 
 
-# Use Tensorflow with GPU
+# Use Tensorflow with GPU and Ubuntu 18.04
 
 According to [here](https://www.tensorflow.org/install/source#gpu), `GCC 7.3.1`, `CUDA 11.2`, and `cuDNN 8.1` is needed.
 Verify the system has a cuda-capable gpu, download and install the nvidia cuda toolkit and cudnn, setup environmental variables and verify the installation.
