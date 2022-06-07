@@ -1,18 +1,18 @@
-# conditional-latency-probability-prediction
+# Pr3D - PreDicting Delay probability Density
 
-Implementation of two conditional density estimation methods with parametric neural networks in Python:
+Implementation of two conditional density estimation methods with parametric neural networks in Python using Tensorflow
 
-* Conventional Mixture Density Network with Gaussian Mixture Model (GMM)
-* Novel Mixture Density Network with Gaussian and Extreme Value Mixture Model (EMM)
+* Conventional and non-conditional mixture density network with Gaussian mixture model (GaussianMM)
+* Novel conventional and non-conditional mixture density network with Gamma and extreme value mixture model (GammaEVM)
 
 # Setting up development
 
 1. Clone the repository, create a Python 3.9.0 virtual environment (requires [virtualenv](https://pypi.org/project/virtualenv/)), and activate it:
 
     ``` bash
-    $ git clone git@github.com:samiemostafavi/conditional-latency-probability-prodiction.git
+    $ git clone git@github.com:samiemostafavi/pr3d.git
     
-    $ cd conditional-latency-probability-prediction
+    $ cd pr3d
 
     $ python -m virtualenv --python=python3.9.0 ./venv
 
@@ -23,4 +23,6 @@ Implementation of two conditional density estimation methods with parametric neu
     
 2. Install the required packages by `requirements.txt`: `pip install -Ur requirements.txt`.
 
-This implementation is based on the repository [here](https://github.com/freelunchtheorem/Conditional_Density_Estimation).
+# Using the package
+
+    pip install git+https://github.com/samiemostafavi/pr3d.git
