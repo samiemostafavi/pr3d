@@ -59,11 +59,13 @@ for i in range(n):
         )
 
         # insert it to the dataset
-        conditional_df['end2end_delay_fabricated'] = conditional_samples
+        conditional_df['predicted distribution'] = conditional_samples
+
+        conditional_df.rename(columns = {'end2end_delay':'empirical distribution'}, inplace = True)
 
         # plot
         sns.histplot(
-            conditional_df[['end2end_delay','end2end_delay_fabricated']],
+            conditional_df[['empirical distribution','predicted distribution']],
             kde=True, 
             ax=ax,
             stat="density",
