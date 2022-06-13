@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 
 from pr3d.de import ConditionalGammaEVM
-from .dataset import create_dataset, load_parquet
+from utils.dataset import create_dataset, load_parquet
 
 dtype = 'float64' # 'float32' or 'float16'
 

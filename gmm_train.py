@@ -1,7 +1,7 @@
 import numpy as np
 
 from pr3d.de import ConditionalGaussianMM
-from .dataset import create_dataset
+from utils import create_dataset
 
 dtype = 'float64' # 'float32' or 'float16'
 

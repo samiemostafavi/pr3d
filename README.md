@@ -93,3 +93,27 @@ Install Tensorflow and verify GPU capabalities
     pip install protobuf==3.20.*
     python -c "import tensorflow as tf; print(tf.reduce_sum(tf.random.normal([1000, 1000])))"
     python -c "import tensorflow as tf; print(tf.config.list_physical_devices('GPU'))"
+
+
+
+# Helpful readings
+
+[1] https://keras.io/examples/keras_recipes/bayesian_neural_networks/
+
+[2] https://towardsdatascience.com/modeling-uncertainty-in-neural-networks-with-tensorflow-probability-a706c2274d12
+
+[3] https://nnart.org/understanding-a-bayesian-neural-network-a-tutorial/
+
+[4] https://towardsdatascience.com/bayesian-neural-networks-with-tensorflow-probability-fbce27d6ef6
+
+[5] https://towardsdatascience.com/data-formats-for-training-in-tensorflow-parquet-petastorm-feather-and-more-e55179eeeb72
+
+[6] https://www.tensorflow.org/probability/api_docs/python/tfp/layers/DenseVariational
+
+[7] https://stackoverflow.com/questions/58678836/notimplementederror-layers-with-arguments-in-init-must-override-get-conf
+
+[8] https://www.youtube.com/watch?v=VFEOskzhhbc
+
+
+
+

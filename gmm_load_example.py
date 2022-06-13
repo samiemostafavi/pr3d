@@ -1,7 +1,7 @@
 import numpy as np
 
 from pr3d.de import ConditionalGaussianMM
-from .dataset import create_dataset
+from utils import create_dataset
 
 gmm_model = ConditionalGaussianMM(
     h5_addr = "gmm_model.h5",

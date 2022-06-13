@@ -8,7 +8,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from pr3d.de import GammaEVM, ConditionalGammaEVM
-from .dataset import create_dataset, load_parquet
+from .utils.dataset import create_dataset, load_parquet
 
 
 dtype = 'float64' # 'float32' or 'float16'
