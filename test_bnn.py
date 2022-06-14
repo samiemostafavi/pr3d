@@ -7,8 +7,9 @@ from keras import layers
 import tensorflow_datasets as tfds
 import tensorflow_probability as tfp
 import tensorflow_io as tfio
+import matplotlib.pyplot as plt
 
-from bayesian import create_probablistic_bnn_model, negative_loglikelihood, SavableDenseVariational, load_bnn_model
+from bayesian import create_probablistic_bnn_model, negative_loglikelihood, load_bnn_model
 
 tf.keras.backend.set_floatx('float32')
 
@@ -72,101 +73,10 @@ def get_train_and_test_splits(
 
 
 
-def run_experiment(model, loss, train_dataset, test_dataset, learning_rate):
-
-    model.compile(
-        optimizer=keras.optimizers.RMSprop(learning_rate=learning_rate),
-        loss=loss,
-        metrics=[keras.metrics.RootMeanSquaredError()],
-    )
-
-    print("Start training the model...")
-    model.fit(train_dataset, epochs=num_epochs, validation_data=test_dataset)
-    print("Model training finished.")
-    _, rmse = model.evaluate(train_dataset, verbose=0)
-    print(f"Train RMSE: {round(rmse, 3)}")
-
-    print("Evaluating model performance...")
-    _, rmse = model.evaluate(test_dataset, verbose=0)
-    print(f"Test RMSE: {round(rmse, 3)}")
-
-
-def compute_predictions(examples, model, iterations=100):
-    predicted = []
-    for _ in range(iterations):
-        predicted.append(model(examples).numpy())
-    predicted = np.concatenate(predicted, axis=1)
-
-    prediction_mean = np.mean(predicted, axis=1).tolist()
-    prediction_min = np.min(predicted, axis=1).tolist()
-    prediction_max = np.max(predicted, axis=1).tolist()
-    prediction_range = (np.max(predicted, axis=1) - np.min(predicted, axis=1)).tolist()
-
-    for idx in range(sample):
-        print(
-            f"Predictions mean: {round(prediction_mean[idx], 2)}, "
-            f"min: {round(prediction_min[idx], 2)}, "
-            f"max: {round(prediction_max[idx], 2)}, "
-            f"range: {round(prediction_range[idx], 2)} - "
-            f"Actual: {targets[idx]}"
-        )
-
-
-
-##################
-
-# get dataset from tensorflow datasets
-def a_get_train_and_test_splits(dataset_size, train_size, batch_size):
-    # We prefetch with a buffer the same size as the dataset because th dataset
-    # is very small and fits into memory.
-    dataset = (
-        tfds.load(name="wine_quality", as_supervised=True, split="train")
-        .map(lambda x, y: (x, tf.cast(y, tf.float32)))
-        .prefetch(buffer_size=dataset_size)
-        .cache()
-    )
-    # We shuffle with a buffer the same size as the dataset.
-    train_dataset = (
-        dataset.take(train_size).shuffle(buffer_size=train_size).batch(batch_size)
-    )
-    test_dataset = dataset.skip(train_size).batch(batch_size)
-
-    return train_dataset, test_dataset
-
-
-##################
-
 
 dataset_size = 8995 #4898
 train_size = int(dataset_size * 0.85)
 batch_size = 512 #256
-
-"""
-feature_names = [
-    "fixed acidity",
-    "volatile acidity",
-    "citric acid",
-    "residual sugar",
-    "chlorides",
-    "free sulfur dioxide",
-    "total sulfur dioxide",
-    "density",
-    "pH",
-    "sulphates",
-    "alcohol",
-]
-
-train_dataset, test_dataset = a_get_train_and_test_splits(
-    dataset_size,
-    train_size,
-    batch_size,
-)
-
-print(train_dataset)
-for ds in train_dataset:
-    print(ds)
-
-"""
 
 feature_names = [
     "queue_length1",
@@ -193,30 +103,35 @@ train_dataset, test_dataset = get_train_and_test_splits(
 #for ds in test_dataset:
 #    print(ds)
 
-
-
 hidden_units = [8, 8]
-prob_bnn_model = create_probablistic_bnn_model(train_size, feature_names, hidden_units)
-
-#prob_bnn_model.summary()
-
-learning_rate = 0.001
-num_epochs = 1000 #300
-
-
-run_experiment(
-    prob_bnn_model, 
-    negative_loglikelihood, 
-    train_dataset, 
-    test_dataset, 
-    learning_rate
+prob_bnn_model = create_probablistic_bnn_model(
+    train_size = train_size,
+    feature_names = feature_names, 
+    hidden_units = hidden_units,
+    dtype = tf.float32,
 )
 
+prob_bnn_model.summary()
+
+learning_rate = 0.005
+num_epochs = 5000 #1000
+
+prob_bnn_model.compile(
+        optimizer=tf.keras.optimizers.SGD(learning_rate=learning_rate),
+        loss=negative_loglikelihood,
+        metrics=[keras.metrics.KLDivergence()],
+    )
+
+print("Start training the model...")
+hist = prob_bnn_model.fit(train_dataset, epochs=num_epochs, validation_data=test_dataset)
+plt.plot(hist.history['loss'])
+plt.xlabel('Epochs')
+plt.ylabel('Total loss')
 
 prob_bnn_model.save("bnn_threehop_model.h5")
-
 reconstructed_model = load_bnn_model("bnn_threehop_model.h5")
 
+exit(0)
 
 # Extract 100 samples
 sample = 100

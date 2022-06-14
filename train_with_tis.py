@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 
 from pr3d.de import ConditionalGammaEVM, GammaEVM
-from .dataset import create_dataset, load_parquet
+from .utils.dataset import create_dataset, load_parquet
 
 
 # load the fitted service delay model

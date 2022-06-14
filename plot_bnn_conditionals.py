@@ -27,14 +27,15 @@ h5_addr = "bnn_threehop_model.h5"
 conditional_delay_model = load_bnn_model(h5_addr)
 
 # find 10 most common queue_length occurances
-n = 9; n1 = 3; n2 = 3
+n = 6; n1 = 3; n2 = 2;
 
-values_count = df[['queue_length1','queue_length2','queue_length3']].value_counts()[:n].index.tolist()
+#values_count = df[['queue_length1','queue_length2','queue_length3']].value_counts()[:n].index.tolist()
+values_count = [(0, 0, 0), (0, 1, 0), (0, 0, 1), (0, 1, 1), (2, 2, 3), (5, 5, 5)]
 print("{0} most common queue states: {1}".format(n,values_count))
 #values_count = [(1,1,1),(0,0,0),(0,5,0),(0,10,0)]
 
 # plot the conditional distributions of them
-fig, axes = plt.subplots(nrows=n2, ncols=n1, figsize=(n1*4,n2*4))
+fig, axes = plt.subplots(nrows=n1, ncols=n2, figsize=(n1*4,n2*5))
 
 for i, ax in zip(range(n), axes.flat):
     # first, plot empirical histogram
@@ -50,6 +51,7 @@ for i, ax in zip(range(n), axes.flat):
         stat="density",
     ).set(title="x={0}, count={1}".format(values_count[i],len(conditional_df)))
     ax.title.set_size(10)
+    ax.set_xlim(left=20, right=80)
 
     # then, plot predictions
     x_cond = [ 
