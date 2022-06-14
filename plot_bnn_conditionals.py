@@ -28,6 +28,7 @@ conditional_delay_model = load_bnn_model(h5_addr)
 
 # find 10 most common queue_length occurances
 n = 6; n1 = 3; n2 = 2;
+x_lim = [20,100]
 
 #values_count = df[['queue_length1','queue_length2','queue_length3']].value_counts()[:n].index.tolist()
 values_count = [(0, 0, 0), (0, 1, 0), (0, 0, 1), (0, 1, 1), (2, 2, 3), (5, 5, 5)]
@@ -51,7 +52,7 @@ for i, ax in zip(range(n), axes.flat):
         stat="density",
     ).set(title="x={0}, count={1}".format(values_count[i],len(conditional_df)))
     ax.title.set_size(10)
-    ax.set_xlim(left=20, right=80)
+    ax.set_xlim(left=x_lim[0], right=x_lim[1])
 
     # then, plot predictions
     x_cond = [ 

@@ -19,110 +19,92 @@ def create_model_inputs(
         )
     return inputs
 
-# Define the prior weight distribution as Normal of mean=0 and stddev=1.
-# Note that, in this example, the we prior distribution is not trainable,
-# as we fix its parameters.
-def dense_var_prior(kernel_size, bias_size, dtype=None):
-    n = kernel_size + bias_size
-    prior_model = keras.Sequential(
-        [
-            tfp.layers.DistributionLambda(
-                lambda t: tfp.distributions.MultivariateNormalDiag(
-                    loc=tf.zeros(n), scale_diag=tf.ones(n)
-                )
-            )
-        ]
-    )
-    return prior_model
 
-
-# Define variational posterior weight distribution as multivariate Gaussian.
-# Note that the learnable parameters for this distribution are the means,
-# variances, and covariances.
-def dense_var_posterior(kernel_size, bias_size, dtype=None):
-    n = kernel_size + bias_size
-    posterior_model = keras.Sequential(
-        [
-            tfp.layers.VariableLayer(
-                tfp.layers.MultivariateNormalTriL.params_size(n), dtype=dtype
-            ),
-            tfp.layers.MultivariateNormalTriL(n),
-        ]
-    )
-    return posterior_model
-
-
-class SavableDenseVariational(tfp.layers.DenseVariational):
+class SavableDenseFlipout(tfp.layers.DenseFlipout):
     def __init__(self,
-               units,
-               make_posterior_fn,
-               make_prior_fn,
-               kl_weight=None,
-               kl_use_exact=False,
-               activation=None,
-               use_bias=True,
-               activity_regularizer=None,
-               **kwargs) -> None:
+        units,
+        batch_size,
+        activation=None,
+        activity_regularizer=None,
+        trainable=True,
+        kernel_posterior_fn=None,
+        kernel_posterior_tensor_fn=None,
+        kernel_prior_fn=None,
+        kernel_divergence_fn=None,
+        bias_posterior_fn=None,
+        bias_posterior_tensor_fn=None,
+        bias_prior_fn=None,
+        bias_divergence_fn=None,
+        seed=None,
+        **kwargs):
 
-        super(SavableDenseVariational,self).__init__(
-            units,
-            make_posterior_fn,
-            make_prior_fn,
-            kl_weight,
-            kl_use_exact,
-            activation,
-            use_bias,
-            activity_regularizer,
+        # kernel functions and divergence
+        kernel_posterior_fn=tfp.layers.util.default_mean_field_normal_fn()
+        kernel_posterior_tensor_fn=lambda d: d.sample()
+        kernel_prior_fn=tfp.layers.util.default_multivariate_normal_fn
+        kernel_divergence_fn=lambda q, p, _: tfp.distributions.kl_divergence(q, p) / (batch_size * 1.0)
+
+        # bias functions and divergence
+        bias_posterior_fn=tfp.layers.util.default_mean_field_normal_fn()
+        bias_posterior_tensor_fn=lambda d: d.sample()
+        bias_prior_fn=tfp.layers.util.default_multivariate_normal_fn
+        bias_divergence_fn=lambda q, p, _: tfp.distributions.kl_divergence(q, p) / (batch_size * 1.0)
+
+        super(SavableDenseFlipout,self).__init__(
+            units=units,
+            activation=activation,
+            activity_regularizer=activity_regularizer,
+            trainable=trainable,
+            kernel_posterior_fn=kernel_posterior_fn,
+            kernel_posterior_tensor_fn=kernel_posterior_tensor_fn,
+            kernel_prior_fn=kernel_prior_fn,
+            kernel_divergence_fn=kernel_divergence_fn,
+            bias_posterior_fn=bias_posterior_fn,
+            bias_posterior_tensor_fn=bias_posterior_tensor_fn,
+            bias_prior_fn=bias_prior_fn,
+            bias_divergence_fn=bias_divergence_fn,
+            seed=seed,
             **kwargs)
 
-        self._kl_weight = kl_weight
-        self._kl_use_exact = kl_use_exact
+        self._batch_size = batch_size
 
     def get_config(self):
-        config = super().get_config().copy()
+        config = super(SavableDenseFlipout, self).get_config().copy()
         config.update({
-            'units': self.units,
-            'make_posterior_fn': self._make_posterior_fn,
-            'make_prior_fn': self._make_prior_fn,
-            'kl_weight': self._kl_weight,
-            'kl_use_exact': self._kl_use_exact,
-            'activation': self.activation,
-            'use_bias' : self.use_bias,
-            'activity_regularizer' : self.activity_regularizer,
-
+            'batch_size': self._batch_size,
         })
         return config
 
 
 def create_probablistic_bnn_model(
-    train_size, 
+    batch_size,
     feature_names, 
     hidden_units,
     dtype=tf.float32,
 ):
+
     inputs = create_model_inputs(feature_names)
     features = keras.layers.concatenate(list(inputs.values()))
     features = layers.BatchNormalization()(features)
 
+
     # Create hidden layers with weight uncertainty using the DenseVariational layer.
     for units in hidden_units:
-        #features = tfp.layers.DenseVariational(
-        features = SavableDenseVariational(
+        features = SavableDenseFlipout(
             units=units,
-            make_prior_fn=dense_var_prior,
-            make_posterior_fn=dense_var_posterior,
-            kl_weight=1 / train_size,
-            activation="sigmoid",
-            dtype=dtype,
+            batch_size=batch_size,
+            activation="relu",
         )(features)
 
-    # Create a probabilisticå output (Normal distribution), and use the `Dense` layer
+    # Create a probabilistic output (Normal distribution), and use another DenseFlipout layer
     # to produce the parameters of the distribution.
     # We set units=2 to learn both the mean and the variance of the Normal distribution.
-    distribution_params = layers.Dense(
-        units=2,
-        dtype=dtype,
-    )(features)
+    distribution_params = SavableDenseFlipout(
+            units=2,
+            batch_size=batch_size,
+            activation="relu",
+        )(features)
+    
     outputs = tfp.layers.IndependentNormal(
         event_shape=1,
         dtype=dtype,
@@ -138,9 +120,7 @@ def load_bnn_model(h5_addr : str):
     model = keras.models.load_model(
         h5_addr,
         custom_objects={ 
-            'SavableDenseVariational' : SavableDenseVariational,
-            'dense_var_prior' : dense_var_prior,
-            'dense_var_posterior' : dense_var_posterior,
+            'SavableDenseFlipout' : SavableDenseFlipout,
             'negative_loglikelihood' : negative_loglikelihood,
             'loss' : negative_loglikelihood
         }

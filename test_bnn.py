@@ -103,9 +103,9 @@ train_dataset, test_dataset = get_train_and_test_splits(
 #for ds in test_dataset:
 #    print(ds)
 
-hidden_units = [8, 8]
+hidden_units = [20, 50, 20]
 prob_bnn_model = create_probablistic_bnn_model(
-    train_size = train_size,
+    batch_size = batch_size,
     feature_names = feature_names, 
     hidden_units = hidden_units,
     dtype = tf.float32,
@@ -114,10 +114,10 @@ prob_bnn_model = create_probablistic_bnn_model(
 prob_bnn_model.summary()
 
 learning_rate = 0.005
-num_epochs = 5000 #1000
+num_epochs = 1000 #1000
 
 prob_bnn_model.compile(
-        optimizer=tf.keras.optimizers.SGD(learning_rate=learning_rate),
+        optimizer=tf.keras.optimizers.Adam(learning_rate=learning_rate),
         loss=negative_loglikelihood,
         metrics=[keras.metrics.KLDivergence()],
     )
