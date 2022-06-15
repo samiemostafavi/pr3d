@@ -1,6 +1,10 @@
 import tensorflow as tf
 import keras
 from keras import layers
+import numpy as np
+import numpy.typing as npt
+from typing import Tuple
+import tensorflow_addons as tfa
 
 class MLP():
 
@@ -114,7 +118,7 @@ class SLP():
 
     def __init__(
         self,
-        name : str = 'mlp',
+        name : str = 'slp',
         layer_config : dict = None,
         dtype = tf.dtypes.float64,
         kernel_initializer = 'glorot_uniform',
@@ -148,6 +152,8 @@ class SLP():
         else:
 
             # Using functional API of keras
+
+            # This is just a dummy input
             self._input_layer = keras.Input(
                     name = "input",
                     shape=(1),
@@ -190,3 +196,148 @@ class SLP():
     @property
     def model(self):
         return self._model
+
+
+
+class NonConditionalDensityEstimator(): 
+    def __init__(
+        self,
+        h5_addr : str = None,
+        dtype : str = 'float64',
+    ):
+        pass
+
+    def save(self, h5_addr : str):
+        pass
+
+    def prob_single(self, y : np.float64) -> Tuple[np.float64, np.float64, np.float64]:
+
+        # for single value x (not batch)
+        # y : np.float64 number
+        x = 0
+        [pdf,log_pdf,ecdf] = self.prob_pred_model.predict(
+            [np.expand_dims(x, axis=0), np.expand_dims(y, axis=0)],
+        )
+        return np.squeeze(pdf),np.squeeze(log_pdf),np.squeeze(ecdf)
+
+    def prob_batch(self, 
+        y : npt.NDArray[np.float64],
+        batch_size=None,
+        verbose=0,
+        steps=None,
+        max_queue_size=10,
+        workers=1,
+        use_multiprocessing=False,    
+    ):
+        
+        # for large batches of input y
+        # y : np.array of np.float64 with the shape (batch_size,1) e.g. np.array([5,6,7,8,9,10])
+        x = np.zeros(len(y))
+        [pdf,log_pdf,ecdf] = self.prob_pred_model.predict(
+            [x,y],
+            batch_size=batch_size,
+            verbose=verbose,
+            steps=steps,
+            callbacks=None,
+            max_queue_size=max_queue_size,
+            workers=workers,
+            use_multiprocessing=use_multiprocessing,
+        )
+        return np.squeeze(pdf),np.squeeze(log_pdf),np.squeeze(ecdf)
+
+    def sample_n(self, 
+        n : int, 
+        random_generator: np.random.Generator = np.random.default_rng(),
+        batch_size=None,
+        verbose=0,
+        steps=None,
+        max_queue_size=10,
+        workers=1,
+        use_multiprocessing=False,
+    ) -> npt.NDArray[np.float64]:
+
+        # generate n random numbers uniformly distributed on [0,1]
+        x = np.zeros(n)
+        y = random_generator.uniform(0,1,n)
+
+        samples = self.sample_model.predict(
+            [x,y],
+            batch_size=batch_size,
+            verbose=verbose,
+            steps=steps,
+            callbacks=None,
+            max_queue_size=max_queue_size,
+            workers=workers,
+            use_multiprocessing=use_multiprocessing,
+        )
+        return np.squeeze(samples)
+
+    def get_parameters(self) -> dict:
+
+        # for single value x (not batch)
+        # y : np.float64 number
+        x = 0
+        # for single value x (not batch)
+        # x : np.array of np.float64 with the shape (ndim)
+        prediction_res = self.params_model.predict(np.expand_dims(x, axis=0))
+
+        result_dict = {}
+        for idx,param in enumerate(self.params_config):
+            result_dict[param] = np.squeeze(prediction_res[idx])
+
+        return result_dict
+
+    def fit(self, 
+        Y,
+        batch_size : int = 1000,
+        epochs : int = 10,
+        learning_rate : float = 5e-3,
+        weight_decay : float = 0.0,
+        epsilon : float = 1e-8,
+    ):
+
+        learning_rate = np.cast[self.dtype.as_numpy_dtype](learning_rate)
+        weight_decay = np.cast[self.dtype.as_numpy_dtype](weight_decay)
+        epsilon = np.cast[self.dtype.as_numpy_dtype](epsilon)
+
+        # define optimizer and train_step
+        optimizer = tfa.optimizers.AdamW(learning_rate=learning_rate, weight_decay=weight_decay, epsilon=epsilon)
+
+        # this keras model is the one that we use for training
+        self.slp_model.model.compile(optimizer=optimizer, loss=self.loss)
+
+        X = np.zeros(len(Y))
+        history = self.slp_model.model.fit(
+            X,
+            Y,
+            batch_size=batch_size,
+            epochs=epochs,
+            # We pass some validation for
+            # monitoring validation loss and metrics
+            # at the end of each epoch
+            #validation_data=(x_val, y_val),
+        )
+
+    @property
+    def prob_pred_model(self) -> keras.Model:
+        return self._prob_pred_model
+
+    @property
+    def sample_model(self) -> keras.Model:
+        return self._sample_model
+
+    @property
+    def params_model(self) -> keras.Model:
+        return self._params_model
+
+    @property
+    def params_config(self) -> dict:
+        return self._params_config
+
+    @property
+    def slp_model(self) -> SLP:
+        return self._slp_model
+
+    @property
+    def loss(self):
+        return self._loss

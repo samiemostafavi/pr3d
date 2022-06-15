@@ -8,32 +8,8 @@ import h5py
 from typing import Tuple
 tfd = tfp.distributions
 
-from .core import MLP
-
-
-def gmm_nll_loss(centers,dtype):
-    # Gaussian mixture network negative log likelihood loss
-    def loss(y_true, y_pred):
-        # y_pred is the concatenated mixture_weights, mixture_locations, and mixture_scales
-        weights = y_pred[:,0:centers-1]
-        locs = y_pred[:,centers:2*centers-1]
-        scales = y_pred[:,2*centers:3*centers-1]
-
-        # very important line, was causing (batch_size,batch_size)
-        y_true = tf.squeeze(y_true)
-        
-        cat = tfd.Categorical(probs=weights,dtype=dtype)
-        components = [tfd.Normal(loc=loc, scale=scale) for loc, scale
-                        in zip(tf.unstack(locs, axis=1), tf.unstack(scales, axis=1))]
-
-        mixture = tfd.Mixture(cat=cat, components=components)
-
-        # define logpdf and loglikelihood
-        log_pdf_ = mixture.log_prob(y_true)
-        log_likelihood_ = tf.reduce_sum(log_pdf_ )
-        return -log_likelihood_
-
-    return loss
+from pr3d.nonbayesian.tf_core import MLP
+from pr3d.common.gmm_core import *
 
 class ConditionalGaussianMM():    
     def __init__(
@@ -112,23 +88,25 @@ class ConditionalGaussianMM():
                 loaded_mlp_model = loaded_mlp_model
             )
         else:
+            self._params_config = {
+                'mixture_weights': { 
+                    'slice_size' : self.centers,
+                    'slice_activation' : 'softmax',
+                },
+                'mixture_locations': { 
+                    'slice_size' : self.centers,
+                    'slice_activation' : None,
+                },
+                'mixture_scales': { 
+                    'slice_size' : self.centers,
+                    'slice_activation' : 'softplus',
+                },
+            }
+
             self.mlp = MLP(
                 name = 'gmm_keras_model',
                 input_shape=(self.x_dim),
-                output_layer_config={
-                    'mixture_weights': { 
-                        'slice_size' : self.centers,
-                        'slice_activation' : 'softmax',
-                    },
-                    'mixture_locations': { 
-                        'slice_size' : self.centers,
-                        'slice_activation' : None,
-                    },
-                    'mixture_scales': { 
-                        'slice_size' : self.centers,
-                        'slice_activation' : 'softplus',
-                    },
-                },
+                output_layer_config=self.params_config,
                 hidden_sizes=self.hidden_sizes,
                 hidden_activation='tanh',
                 dtype=self.dtype,

@@ -3,8 +3,8 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 import pandas as pd
 
-from pr3d.de import GammaEVM
-from .utils.dataset import create_dataset, load_parquet
+from pr3d.nonbayesian import GammaEVM, GaussianMM
+from utils.dataset import create_dataset, load_parquet
 
 dtype = 'float64' # 'float32' or 'float16'
 
@@ -16,6 +16,7 @@ evm_model = GammaEVM(
 df = load_parquet(file_addresses=['dataset_onehop.parquet'],read_columns=['service_delay'])
 print(df)
 
+
 # shuffle the rows
 training_df = df.sample(frac=1)
 
@@ -26,15 +27,13 @@ training_samples_num = 10000
 evm_model.fit(
     Y[1:training_samples_num],
     batch_size = training_samples_num, # 1000
-    epochs = 5000, # 10
+    epochs = 5000, # 5000
     learning_rate = 2e-2,
     weight_decay = 0.0,
     epsilon = 1e-8,
 )
 
-[gamma_shape,gamma_rate,gamma_rate,tail_param,tail_threshold,tail_scale] = evm_model.get_parameters()
-print(gamma_shape,gamma_rate,gamma_rate,tail_param,tail_threshold,tail_scale)
-
+print(evm_model.get_parameters())
 
 fig, ax = plt.subplots()
 

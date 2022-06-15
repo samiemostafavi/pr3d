@@ -4,19 +4,22 @@ import numpy as np
 import numpy.typing as npt
 import tensorflow_probability as tfp
 import tensorflow_addons as tfa
+import h5py
 from typing import Tuple
 tfd = tfp.distributions
 
-from .core import SLP
-from .ev_mixture_tf import *
+from pr3d.nonbayesian.tf_core import MLP
+from pr3d.common.evm_core import *
 
 # in order to use tfd.Gamma.quantile
 tf.compat.v1.disable_eager_execution()
 
-class GammaEVM():
+class ConditionalGammaEVM():
     def __init__(
         self,
         h5_addr : str = None,
+        x_dim : int = 3,
+        hidden_sizes : tuple = (16,16),
         dtype : str = 'float64',
     ):
         # configure keras to use dtype
@@ -33,28 +36,32 @@ class GammaEVM():
             raise Exception("unknown dtype format")
 
         if h5_addr is not None:
+            # read side parameters
+            with h5py.File(h5_addr, 'r') as hf:
+                self.x_dim = hf.get('x_dim')
+                self.hidden_sizes = hf.get('hidden_sizes')
 
             # load the keras model
-            loaded_slp_model = keras.models.load_model(h5_addr, custom_objects={ 'loss' : gevm_nll_loss(self.dtype) })
+            loaded_mlp_model = keras.models.load_model(h5_addr, custom_objects={ 'loss' : gevm_nll_loss(self.dtype) })
             #self._model.summary()
 
             # create the model
-            self.create_model(loaded_slp_model)
+            self.create_model(loaded_mlp_model)
         else:
 
-            # create the slp model
+            self.x_dim = x_dim
+            self.hidden_sizes = hidden_sizes
+
+            # create the mlp model
             self.create_model()
 
-    def get_parameters(self) -> Tuple[np.float64, np.float64, np.float64, np.float64, np.float64 , np.float64]:
+    def verbose_param_batch(self, x : npt.NDArray[np.float64]):
 
-        # for single value x (not batch)
         # y : np.float64 number
-        x = 0
-        # for single value x (not batch)
         # x : np.array of np.float64 with the shape (ndim)
-        [gamma_shape,gamma_rate] = self.bulk_param_model.predict(np.expand_dims(x, axis=0))
-        [tail_threshold,tail_param,tail_scale] = self.gpd_param_model.predict(np.expand_dims(x, axis=0))
-        norm_factor = self.norm_factor_model.predict(np.expand_dims(x, axis=0))
+        [gamma_shape,gamma_rate] = self.bulk_param_model.predict(x)
+        [tail_threshold,tail_param,tail_scale] = self.gpd_param_model.predict(x)
+        norm_factor = self.norm_factor_model.predict(x)
 
         return {
             "gamma_shape" : np.squeeze(gamma_shape),
@@ -65,11 +72,27 @@ class GammaEVM():
             "norm_factor": np.squeeze(norm_factor),
         }
 
-    def prob_single(self, y : np.float64) -> Tuple[np.float64, np.float64, np.float64]:
+    def verbose_prob_batch(self, x : npt.NDArray[np.float64], y : np.float64):
+        [gpd_multiplexer,
+            bulk_multiplexer,
+            bulk_prob_t, 
+            gpd_prob_t,
+            tail_samples_count,
+            bulk_samples_count] = self.full_prob_model.predict([x,y])
 
-        # for single value x (not batch)
+        return (
+            gpd_multiplexer,
+            bulk_multiplexer,
+            bulk_prob_t, 
+            gpd_prob_t,
+            tail_samples_count,
+            bulk_samples_count,
+        )
+
+    def prob_single(self, x : npt.NDArray[np.float64], y : np.float64) -> Tuple[np.float64, np.float64, np.float64]:
+
+        # for np.array of np.float64 with the shape (ndim)
         # y : np.float64 number
-        x = 0
         [pdf,log_pdf,ecdf] = self.prob_pred_model.predict(
             [np.expand_dims(x, axis=0), np.expand_dims(y, axis=0)],
             #batch_size=None,
@@ -82,12 +105,12 @@ class GammaEVM():
         )
         return np.squeeze(pdf),np.squeeze(log_pdf),np.squeeze(ecdf)
 
-
-    def prob_batch(self, y : npt.NDArray[np.float64]):
+    def prob_batch(self, x : npt.NDArray[np.float64], y : npt.NDArray[np.float64]):
         
-        # for large batches of input y
-        # y : np.array of np.float64 with the shape (batch_size,1) e.g. np.array([5,6,7,8,9,10])
-        x = np.zeros(len(y))
+        # for large batches of input x
+        # x : np.array of np.float64 with the shape (batch_size,ndim)
+        # y : np.array of np.float64 with the shape (batch_size,1)
+
         [pdf,log_pdf,ecdf] = self.prob_pred_model.predict(
             [x,y],
             #batch_size=None,
@@ -100,15 +123,15 @@ class GammaEVM():
         )
         return np.squeeze(pdf),np.squeeze(log_pdf),np.squeeze(ecdf)
 
-    def sample_n(self, 
-        n : int, 
+    def sample_n(self,
+        x : npt.NDArray[np.float64],
         random_generator: np.random.Generator = np.random.default_rng(),
     ) -> npt.NDArray[np.float64]:
 
-        # generate n random numbers uniformly distributed on [0,1]
-        x = np.zeros(n)
-        y = random_generator.uniform(0,1,n)
+        # generate n=len(x) random numbers uniformly distributed on [0,1]
+        y = random_generator.uniform(0,1,len(x))
 
+        # pass them to the sample generator model
         samples = self.sample_model.predict(
             [x,y],
             #batch_size=None,
@@ -121,16 +144,17 @@ class GammaEVM():
         )
         return np.squeeze(samples)
 
-    def create_model(self, loaded_slp_model : keras.Model = None):
+    def create_model(self, loaded_mlp_model : keras.Model = None):
 
-        if loaded_slp_model is not None:
-            self.slp = SLP(
-                loaded_slp_model = loaded_slp_model
+        if loaded_mlp_model is not None:
+            self.mlp = MLP(
+                loaded_mlp_model = loaded_mlp_model
             )
         else:
-            self.slp = SLP(
-                name = 'evm_keras_model',
-                layer_config={
+            self.mlp = MLP(
+                name = 'emm_keras_model',
+                input_shape=(self.x_dim),
+                output_layer_config={
                     'gamma_shape': { 
                         'slice_size' : 1,
                         'slice_activation' : 'softplus',
@@ -152,24 +176,27 @@ class GammaEVM():
                         'slice_activation' : 'softplus',
                     }
                 },
-                #batch_size = 100,
-                dtype = self.dtype
+                hidden_sizes=self.hidden_sizes,
+                hidden_activation='tanh',
+                #batch_size= 100,
+                dtype=self.dtype,
             )  
-        #self.slp.model.summary()
+        #self.mlp.model.summary()
+
 
         # now lets define the models to get probabilities
 
-        # define dummy input
-        self.dummy_input = self.slp.input_layer
+        # define X input
+        self.x_input = self.mlp.input_layer
 
         # put mixture components together (from X)
-        self.gamma_shape = self.slp.output_slices['gamma_shape']
-        self.gamma_rate = self.slp.output_slices['gamma_rate']
-        self.tail_param = self.slp.output_slices['tail_parameter']
-        self.tail_threshold = self.slp.output_slices['tail_threshold']
-        self.tail_scale = self.slp.output_slices['tail_scale']
+        self.gamma_shape = self.mlp.output_slices['gamma_shape']
+        self.gamma_rate = self.mlp.output_slices['gamma_rate']
+        self.tail_param = self.mlp.output_slices['tail_parameter']
+        self.tail_threshold = self.mlp.output_slices['tail_threshold']
+        self.tail_scale = self.mlp.output_slices['tail_scale']
 
-        # build gamma density (from X)
+        # build gamma density
         gamma = tfd.Gamma(concentration=tf.squeeze(self.gamma_shape), rate=tf.squeeze(self.gamma_rate))
 
         # find the normalization factor (from X)
@@ -201,7 +228,7 @@ class GammaEVM():
         bulk_tail_prob_t = tf.constant(1.00,dtype=self.dtype)-bulk_cdf_t
 
 
-        # define tail probabilities (from X and Y)
+        # define GPD probabilities (from X and Y)
         gpd_prob_t = gpd_prob(
             tail_threshold=self.tail_threshold,
             tail_param = self.tail_param,
@@ -240,11 +267,37 @@ class GammaEVM():
             dtype = self.dtype,
         )
 
+        # these models are used for printing paramters
+        self.bulk_param_model = keras.Model(
+            inputs=self.x_input,
+            outputs=[
+                self.gamma_shape,
+                self.gamma_rate,
+            ],
+            name="bulk_param_model",
+        )
+        self.gpd_param_model = keras.Model(
+            inputs=self.x_input,
+            outputs=[
+                self.tail_threshold,
+                self.tail_param,
+                self.tail_scale,
+            ],
+            name="gpd_param_model",
+        )
+        self.norm_factor_model = keras.Model(
+            inputs=self.x_input,
+            outputs=[
+                tf.expand_dims(self.norm_factor, axis=0), # very important "expand_dims"
+            ],
+            name="norm_factor_model",
+        )
+
         # these models are used for probability predictions
         self.full_prob_model = keras.Model(
             inputs=[
-                self.dummy_input,
-                self.y_input,
+                self.x_input,
+                self.y_input
             ],
             outputs=[
                 tf.cast(bool_split_tensor,dtype=self.dtype),
@@ -259,8 +312,8 @@ class GammaEVM():
 
         self.prob_pred_model = keras.Model(
             inputs=[
-                self.dummy_input,
-                self.y_input,
+                self.x_input,
+                self.y_input
             ],
             outputs=[
                 self.pdf,
@@ -268,32 +321,6 @@ class GammaEVM():
                 self.ecdf
             ],
             name="prob_pred_model",
-        )
-
-        # these models are used for printing paramters
-        self.bulk_param_model = keras.Model(
-            inputs=self.dummy_input,
-            outputs=[
-                self.gamma_shape,
-                self.gamma_rate,
-            ],
-            name="bulk_param_model",
-        )
-        self.gpd_param_model = keras.Model(
-            inputs=self.dummy_input,
-            outputs=[
-                self.tail_threshold,
-                self.tail_param,
-                self.tail_scale,
-            ],
-            name="gpd_param_model",
-        )
-        self.norm_factor_model = keras.Model(
-            inputs=self.dummy_input,
-            outputs=[
-                tf.expand_dims(self.norm_factor, axis=0), # very important "expand_dims"
-            ],
-            name="norm_factor_model",
         )
 
         # create the sampling model
@@ -330,6 +357,7 @@ class GammaEVM():
         )
 
         # get bulk samples
+        # ONLY WORKS WITH tf.compat.v1.disable_eager_execution()
         bulk_sample_t = gamma.quantile(
             tf.squeeze(self.sample_input)
         )
@@ -344,7 +372,7 @@ class GammaEVM():
 
         self.sample_model = keras.Model(
             inputs=[
-                self.dummy_input,
+                self.x_input,
                 self.sample_input,
             ],
             outputs=[
@@ -352,11 +380,10 @@ class GammaEVM():
             ],
             name="sample_model",
         )
-
     
      
     def fit(self, 
-        Y,
+        X, Y,
         batch_size : int = 1000,
         epochs : int = 10,
         learning_rate : float = 5e-3,
@@ -372,10 +399,9 @@ class GammaEVM():
         optimizer = tfa.optimizers.AdamW(learning_rate=learning_rate, weight_decay=weight_decay, epsilon=epsilon)
 
         # this keras model is the one that we use for training
-        self.slp.model.compile(optimizer=optimizer, loss=gevm_nll_loss(self.dtype))
+        self.mlp.model.compile(optimizer=optimizer, loss=gevm_nll_loss(self.dtype))
 
-        X = np.zeros(len(Y))
-        history = self.slp.model.fit(
+        history = self.mlp.model.fit(
             X,
             Y,
             batch_size=batch_size,
@@ -387,4 +413,7 @@ class GammaEVM():
         )
 
     def save(self, h5_addr : str) -> None:
-        self.slp.model.save(h5_addr)
+        self.mlp.model.save(h5_addr)
+        with h5py.File(h5_addr, 'a') as hf:
+            hf.create_dataset('x_dim',self.x_dim)
+            hf.create_dataset('hidden_sizes',self.hidden_sizes)
