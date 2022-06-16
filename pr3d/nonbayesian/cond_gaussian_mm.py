@@ -9,7 +9,7 @@ from typing import Tuple
 tfd = tfp.distributions
 
 from pr3d.nonbayesian.tf_core import MLP
-from pr3d.common.gmm_core import *
+from pr3d.common.gmm import *
 
 class ConditionalGaussianMM():    
     def __init__(

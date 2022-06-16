@@ -2,37 +2,43 @@ import tensorflow as tf
 import keras
 import tensorflow_probability as tfp
 tfd = tfp.distributions
+import h5py
 
-from pr3d.common.evm_core import *
-from pr3d.common.tf_core import SLP, NonConditionalDensityEstimator
+from pr3d.common.evm import *
+from pr3d.common.core import NonConditionalDensityEstimator
 
 # in order to use tfd.Gamma.quantile
-tf.compat.v1.disable_eager_execution()
+#tf.compat.v1.disable_eager_execution()
 
 class GammaEVM(NonConditionalDensityEstimator):
     def __init__(
         self,
         h5_addr : str = None,
+        bayesian : bool = False,
+        batch_size : int = None,
         dtype : str = 'float64',
     ):
         super(GammaEVM,self).__init__(
             h5_addr = h5_addr,
+            bayesian = bayesian,
+            batch_size = batch_size,
             dtype = dtype,
         )
+        
+        # figure out parameters
+        if h5_addr is not None:
+            # read side parameters
+            with h5py.File(h5_addr, 'r') as hf:
+                self._bayesian = bool(hf.get('bayesian')[0])
 
-        # configure keras to use dtype
-        tf.keras.backend.set_floatx(dtype)
-
-        # for creating the tensors
-        if dtype == 'float64':
-            self.dtype = tf.float64
-        elif dtype == 'float32':
-            self.dtype = tf.float32
-        elif dtype == 'float16':
-            self.dtype = tf.float16
+                if 'batch_size' in hf.keys():
+                    self._batch_size = int(hf.get('batch_size')[0])
         else:
-            raise Exception("unknown dtype format")
+            self._bayesian = bayesian
+            self._batch_size = batch_size
+        
 
+        # create parameters dict
         self._params_config = {
             'gamma_shape': { 
                 'slice_size' : 1,
@@ -56,38 +62,20 @@ class GammaEVM(NonConditionalDensityEstimator):
             }
         }
 
-        self._loss = gevm_nll_loss(self.dtype)
-
-        if h5_addr is not None:
-
-            # load the keras model and feed to SLP
-            self._slp_model = SLP(
-                loaded_slp_model = keras.models.load_model(
-                    h5_addr, 
-                    custom_objects={ 
-                        'loss' : self._loss
-                    },
-                )
-            )
-
-        else:
-
-            # create SLP model
-            self._slp_model = SLP(
-                name = 'evm_keras_model',
-                layer_config=self._params_config,
-                #batch_size = 100,
-                dtype = self.dtype
-            )
-
+        # ask NonConditionalDensityEstimator to form the SLP
+        self.create_slp(h5_addr = h5_addr)
         #self._slp_model.model.summary()
 
         # create models for inference: 
-        # self._prob_pred_model, self._sample_model, self._params_model
+        # self._prob_pred_model, self._sample_model, self._params_model, self._training_model
         self.create_models()
 
     def save(self, h5_addr : str) -> None:
         self.slp_model.model.save(h5_addr)
+        with h5py.File(h5_addr, 'a') as hf:
+            hf.create_dataset('bayesian', shape=(1,), data=int(self.bayesian))
+            if self.batch_size is not None:
+                hf.create_dataset('batch_size', shape=(1,), data=int(self.batch_size))
 
     def create_models(self):
 
@@ -114,7 +102,7 @@ class GammaEVM(NonConditionalDensityEstimator):
         self.y_input = keras.Input(
             name = "y_input",
             shape=(1),
-            #batch_size = 100,
+            batch_size = self.batch_size,
             dtype=self.dtype,
         )
 
@@ -166,6 +154,8 @@ class GammaEVM(NonConditionalDensityEstimator):
             bulk_prob_t = bulk_prob_t,
             dtype = self.dtype,
         )
+        self.expanded_log_pdf = tf.expand_dims(self.log_pdf,axis=1)
+
         self.ecdf = tf.constant(1.00,dtype=self.dtype) - mixture_tail_prob(
             bool_split_tensor = bool_split_tensor,
             gpd_tail_prob_t = gpd_tail_prob_t,
@@ -209,8 +199,8 @@ class GammaEVM(NonConditionalDensityEstimator):
             outputs=[
                 self.gamma_shape,
                 self.gamma_rate,
-                self.tail_threshold,
                 self.tail_param,
+                self.tail_threshold,
                 self.tail_scale,
             ],
             name="params_model",
@@ -224,6 +214,21 @@ class GammaEVM(NonConditionalDensityEstimator):
             name="norm_factor_model",
         )
 
+        # training model
+        self._training_model = keras.Model(
+            inputs=[
+                self.dummy_input,
+                self.y_input,    
+            ],
+            outputs=[
+                self.expanded_log_pdf, # in shape: (batch_size,1)
+            ]
+        )
+
+        # defne the loss function
+        # y_pred will be self.log_pdf which is (batch_size,1)
+        self._loss = lambda y_true, y_pred: -tf.reduce_sum(y_pred)
+
         # create the sampling model
         # sample_input: random uniform numbers in [0,1]
         # feed them to the inverse cdf of the distribution
@@ -232,6 +237,8 @@ class GammaEVM(NonConditionalDensityEstimator):
         # split sample_input into the ones greater or smaller than norm_factor
         # feed smallers to the icdf of Gamma, feed larger values to the icdf of GPD
 
+
+        '''
         # define random input
         self.sample_input = keras.Input(
                 name = "sample_input",
@@ -281,3 +288,4 @@ class GammaEVM(NonConditionalDensityEstimator):
             ],
             name="sample_model",
         )
+        '''
