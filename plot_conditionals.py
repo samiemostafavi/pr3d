@@ -5,7 +5,7 @@ import pyarrow.compute as pc
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-from pr3d.nonbayesian import ConditionalGammaEVM
+from pr3d.de import ConditionalGammaEVM
 
 # load dataset first
 file_addresses = ['dataset.parquet']

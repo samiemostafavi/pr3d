@@ -1,6 +1,6 @@
 import numpy as np
 
-from pr3d.nonbayesian import ConditionalGaussianMM
+from pr3d.de import ConditionalGaussianMM
 from utils import create_dataset
 
 gmm_model = ConditionalGaussianMM(

@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 from tensorflow import keras
 
-from pr3d.nonbayesian import GammaEVM, GaussianMM
+from pr3d.de import GammaEVM, GaussianMM
 from utils.dataset import create_dataset, load_parquet
 
 dtype = 'float64' # 'float32' or 'float16'

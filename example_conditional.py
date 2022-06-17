@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from tensorflow import keras
 
-from pr3d.nonbayesian import ConditionalGammaEVM, ConditionalGaussianMM
+from pr3d.de import ConditionalGammaEVM, ConditionalGaussianMM
 from utils import parquet_tf_pipeline_2
 
 dtype = 'float64' # 'float32' or 'float16'
