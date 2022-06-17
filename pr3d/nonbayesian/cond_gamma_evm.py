@@ -8,193 +8,130 @@ import h5py
 from typing import Tuple
 tfd = tfp.distributions
 
-from pr3d.nonbayesian.tf_core import MLP
-from pr3d.common.evm_core import *
+from pr3d.common.evm import *
+from pr3d.common.core import ConditionalDensityEstimator
 
 # in order to use tfd.Gamma.quantile
-tf.compat.v1.disable_eager_execution()
+#tf.compat.v1.disable_eager_execution()
 
-class ConditionalGammaEVM():
+class ConditionalGammaEVM(ConditionalDensityEstimator):
     def __init__(
         self,
+        x_dim : list = None,
         h5_addr : str = None,
-        x_dim : int = 3,
-        hidden_sizes : tuple = (16,16),
+        bayesian : bool = False,
+        batch_size : int = None,
         dtype : str = 'float64',
+        hidden_sizes = (16,16), 
+        hidden_activation = 'tanh',
     ):
-        # configure keras to use dtype
-        tf.keras.backend.set_floatx(dtype)
 
-        # for creating the tensors
-        if dtype == 'float64':
-            self.dtype = tf.float64
-        elif dtype == 'float32':
-            self.dtype = tf.float32
-        elif dtype == 'float16':
-            self.dtype = tf.float16
-        else:
-            raise Exception("unknown dtype format")
+        super(ConditionalGammaEVM,self).__init__(
+            x_dim = x_dim,
+            h5_addr = h5_addr,
+            bayesian = bayesian,
+            batch_size = batch_size,
+            dtype = dtype,
+            hidden_sizes = hidden_sizes,
+            hidden_activation = hidden_activation,
+        )
 
+        # figure out parameters
         if h5_addr is not None:
             # read side parameters
             with h5py.File(h5_addr, 'r') as hf:
-                self.x_dim = hf.get('x_dim')
-                self.hidden_sizes = hf.get('hidden_sizes')
+                self._x_dim = [ encoded.decode("utf-8")  for encoded in list(hf.get('x_dim')[0])]
+                self._bayesian = bool(hf.get('bayesian')[0])
 
-            # load the keras model
-            loaded_mlp_model = keras.models.load_model(h5_addr, custom_objects={ 'loss' : gevm_nll_loss(self.dtype) })
-            #self._model.summary()
+                if 'batch_size' in hf.keys():
+                    self._batch_size = int(hf.get('batch_size')[0])
+                
+                if 'hidden_sizes' in hf.keys():
+                    self._hidden_sizes = tuple(hf.get('hidden_sizes')[0])
 
-            # create the model
-            self.create_model(loaded_mlp_model)
+                if 'hidden_activation' in hf.keys():
+                    self._hidden_activation = str(hf.get('hidden_activation')[0].decode("utf-8"))
+
         else:
+            self._x_dim = x_dim
+            self._bayesian = bayesian
+            self._batch_size = batch_size
+            self._hidden_sizes = hidden_sizes
+            self._hidden_activation = hidden_activation
 
-            self.x_dim = x_dim
-            self.hidden_sizes = hidden_sizes
 
-            # create the mlp model
-            self.create_model()
-
-    def verbose_param_batch(self, x : npt.NDArray[np.float64]):
-
-        # y : np.float64 number
-        # x : np.array of np.float64 with the shape (ndim)
-        [gamma_shape,gamma_rate] = self.bulk_param_model.predict(x)
-        [tail_threshold,tail_param,tail_scale] = self.gpd_param_model.predict(x)
-        norm_factor = self.norm_factor_model.predict(x)
-
-        return {
-            "gamma_shape" : np.squeeze(gamma_shape),
-            "gamma_rate" : np.squeeze(gamma_rate),
-            "tail_threshold" : np.squeeze(tail_threshold),
-            "tail_param" : np.squeeze(tail_param),
-            "tail_scale" : np.squeeze(tail_scale),
-            "norm_factor": np.squeeze(norm_factor),
+        # create parameters dict
+        self._params_config = {
+            'gamma_shape': { 
+                'slice_size' : 1,
+                'slice_activation' : 'softplus',
+            },
+            'gamma_rate': { 
+                'slice_size' : 1,
+                'slice_activation' : 'softplus',
+            },
+            'tail_parameter' : {
+                'slice_size' : 1,
+                'slice_activation' : 'softplus',
+            },
+            'tail_threshold' : {
+                'slice_size' : 1,
+                'slice_activation' : 'softplus',
+            },
+            'tail_scale' : {
+                'slice_size' : 1,
+                'slice_activation' : 'softplus',
+            },
         }
 
-    def verbose_prob_batch(self, x : npt.NDArray[np.float64], y : np.float64):
-        [gpd_multiplexer,
-            bulk_multiplexer,
-            bulk_prob_t, 
-            gpd_prob_t,
-            tail_samples_count,
-            bulk_samples_count] = self.full_prob_model.predict([x,y])
+        # ask ConditionalDensityEstimator to form the MLP
+        self.create_core(h5_addr = h5_addr)
+        #self.core_model.model.summary()
 
-        return (
-            gpd_multiplexer,
-            bulk_multiplexer,
-            bulk_prob_t, 
-            gpd_prob_t,
-            tail_samples_count,
-            bulk_samples_count,
-        )
+        # create models for inference: 
+        # self._prob_pred_model, self._sample_model, self._params_model, self._training_model
+        self.create_models()
 
-    def prob_single(self, x : npt.NDArray[np.float64], y : np.float64) -> Tuple[np.float64, np.float64, np.float64]:
+    def save(self, h5_addr : str) -> None:
+        self.core_model.model.save(h5_addr)
+        with h5py.File(h5_addr, 'a') as hf:
+            hf.create_dataset('x_dim', shape=(1,len(self.x_dim)), data=self.x_dim)
+            hf.create_dataset('bayesian', shape=(1,), data=int(self.bayesian))
 
-        # for np.array of np.float64 with the shape (ndim)
-        # y : np.float64 number
-        [pdf,log_pdf,ecdf] = self.prob_pred_model.predict(
-            [np.expand_dims(x, axis=0), np.expand_dims(y, axis=0)],
-            #batch_size=None,
-            #verbose=0,
-            #steps=None,
-            #callbacks=None,
-            #max_queue_size=10,
-            #workers=1,
-            #use_multiprocessing=False,
-        )
-        return np.squeeze(pdf),np.squeeze(log_pdf),np.squeeze(ecdf)
+            if self.batch_size is not None:
+                hf.create_dataset('batch_size', shape=(1,), data=int(self.batch_size))
 
-    def prob_batch(self, x : npt.NDArray[np.float64], y : npt.NDArray[np.float64]):
-        
-        # for large batches of input x
-        # x : np.array of np.float64 with the shape (batch_size,ndim)
-        # y : np.array of np.float64 with the shape (batch_size,1)
+            if self.hidden_sizes is not None:
+                hf.create_dataset('hidden_sizes', shape=(1,len(self.hidden_sizes)), data=list(self.hidden_sizes))
 
-        [pdf,log_pdf,ecdf] = self.prob_pred_model.predict(
-            [x,y],
-            #batch_size=None,
-            #verbose=0,
-            #steps=None,
-            #callbacks=None,
-            #max_queue_size=10,
-            #workers=1,
-            #use_multiprocessing=False,
-        )
-        return np.squeeze(pdf),np.squeeze(log_pdf),np.squeeze(ecdf)
+            if self.hidden_activation is not None:
+                hf.create_dataset('hidden_activation', shape=(1,), data=str(self.hidden_activation))
 
-    def sample_n(self,
-        x : npt.NDArray[np.float64],
-        random_generator: np.random.Generator = np.random.default_rng(),
-    ) -> npt.NDArray[np.float64]:
-
-        # generate n=len(x) random numbers uniformly distributed on [0,1]
-        y = random_generator.uniform(0,1,len(x))
-
-        # pass them to the sample generator model
-        samples = self.sample_model.predict(
-            [x,y],
-            #batch_size=None,
-            #verbose=0,
-            #steps=None,
-            #callbacks=None,
-            #max_queue_size=10,
-            #workers=1,
-            #use_multiprocessing=False,
-        )
-        return np.squeeze(samples)
-
-    def create_model(self, loaded_mlp_model : keras.Model = None):
-
-        if loaded_mlp_model is not None:
-            self.mlp = MLP(
-                loaded_mlp_model = loaded_mlp_model
-            )
-        else:
-            self.mlp = MLP(
-                name = 'emm_keras_model',
-                input_shape=(self.x_dim),
-                output_layer_config={
-                    'gamma_shape': { 
-                        'slice_size' : 1,
-                        'slice_activation' : 'softplus',
-                    },
-                    'gamma_rate': { 
-                        'slice_size' : 1,
-                        'slice_activation' : 'softplus',
-                    },
-                    'tail_parameter' : {
-                        'slice_size' : 1,
-                        'slice_activation' : 'softplus',
-                    },
-                    'tail_threshold' : {
-                        'slice_size' : 1,
-                        'slice_activation' : 'softplus',
-                    },
-                    'tail_scale' : {
-                        'slice_size' : 1,
-                        'slice_activation' : 'softplus',
-                    }
-                },
-                hidden_sizes=self.hidden_sizes,
-                hidden_activation='tanh',
-                #batch_size= 100,
-                dtype=self.dtype,
-            )  
-        #self.mlp.model.summary()
-
-
-        # now lets define the models to get probabilities
+    def create_models(self):
 
         # define X input
-        self.x_input = self.mlp.input_layer
+        self.x_input = list(self.core_model.input_slices.values())
 
         # put mixture components together (from X)
-        self.gamma_shape = self.mlp.output_slices['gamma_shape']
-        self.gamma_rate = self.mlp.output_slices['gamma_rate']
-        self.tail_param = self.mlp.output_slices['tail_parameter']
-        self.tail_threshold = self.mlp.output_slices['tail_threshold']
-        self.tail_scale = self.mlp.output_slices['tail_scale']
+        self.gamma_shape = self.core_model.output_slices['gamma_shape']
+        self.gamma_rate = self.core_model.output_slices['gamma_rate']
+        self.tail_param = self.core_model.output_slices['tail_parameter']
+        self.tail_threshold = self.core_model.output_slices['tail_threshold']
+        self.tail_scale = self.core_model.output_slices['tail_scale']
+
+        # these models are used for printing paramters
+        self._params_model = keras.Model(
+            #inputs=list(self.x_input.values()),
+            inputs=self.x_input,
+            outputs=[
+                self.gamma_shape,
+                self.gamma_rate,
+                self.tail_param,
+                self.tail_threshold,
+                self.tail_scale,
+            ],
+            name="params_model",
+        )
 
         # build gamma density
         gamma = tfd.Gamma(concentration=tf.squeeze(self.gamma_shape), rate=tf.squeeze(self.gamma_rate))
@@ -205,10 +142,10 @@ class ConditionalGammaEVM():
 
         # define Y input
         self.y_input = keras.Input(
-                name = "y_input",
-                shape=(1),
-                #batch_size = 100,
-                dtype=self.dtype,
+            name = "y_input",
+            shape=(1),
+            batch_size = self.batch_size,
+            dtype=self.dtype,
         )
 
         # create batch size tensor (from Y)
@@ -253,44 +190,20 @@ class ConditionalGammaEVM():
             bulk_prob_t = bulk_prob_t,
             dtype = self.dtype,
         )
-
+        
         self.log_pdf =  mixture_log_prob(
             bool_split_tensor = bool_split_tensor,
             gpd_prob_t = gpd_prob_t,
             bulk_prob_t = bulk_prob_t,
             dtype = self.dtype,
         )
+        self.expanded_log_pdf = tf.expand_dims(self.log_pdf,axis=1)
+
         self.ecdf = tf.constant(1.00,dtype=self.dtype) - mixture_tail_prob(
             bool_split_tensor = bool_split_tensor,
             gpd_tail_prob_t = gpd_tail_prob_t,
             bulk_tail_prob_t = bulk_tail_prob_t,
             dtype = self.dtype,
-        )
-
-        # these models are used for printing paramters
-        self.bulk_param_model = keras.Model(
-            inputs=self.x_input,
-            outputs=[
-                self.gamma_shape,
-                self.gamma_rate,
-            ],
-            name="bulk_param_model",
-        )
-        self.gpd_param_model = keras.Model(
-            inputs=self.x_input,
-            outputs=[
-                self.tail_threshold,
-                self.tail_param,
-                self.tail_scale,
-            ],
-            name="gpd_param_model",
-        )
-        self.norm_factor_model = keras.Model(
-            inputs=self.x_input,
-            outputs=[
-                tf.expand_dims(self.norm_factor, axis=0), # very important "expand_dims"
-            ],
-            name="norm_factor_model",
         )
 
         # these models are used for probability predictions
@@ -310,10 +223,10 @@ class ConditionalGammaEVM():
             name="full_prob_model",
         )
 
-        self.prob_pred_model = keras.Model(
+        self._prob_pred_model = keras.Model(
             inputs=[
                 self.x_input,
-                self.y_input
+                self.y_input,
             ],
             outputs=[
                 self.pdf,
@@ -323,6 +236,37 @@ class ConditionalGammaEVM():
             name="prob_pred_model",
         )
 
+        self.norm_factor_model = keras.Model(
+            inputs=self.x_input,
+            outputs=[
+                tf.expand_dims(self.norm_factor, axis=0), # very important "expand_dims"
+            ],
+            name="norm_factor_model",
+        )
+
+        # pipeline training model
+        self._pl_training_model = keras.Model(
+            inputs={**self.core_model.input_slices, 'y_input':self.y_input},
+            outputs=[
+                self.expanded_log_pdf, # in shape: (batch_size,1)
+            ]
+        )
+
+        # normal training model
+        self._training_model = keras.Model(
+            inputs=[
+                self.x_input,
+                self.y_input,
+            ],
+            outputs=[
+                self.expanded_log_pdf, # in shape: (batch_size,1)
+            ]
+        )
+
+        # defne the loss function
+        # y_pred will be self.log_pdf which is (batch_size,1)
+        self._loss = lambda y_true, y_pred: -tf.reduce_sum(y_pred)
+
         # create the sampling model
         # sample_input: random uniform numbers in [0,1]
         # feed them to the inverse cdf of the distribution
@@ -331,6 +275,7 @@ class ConditionalGammaEVM():
         # split sample_input into the ones greater or smaller than norm_factor
         # feed smallers to the icdf of Gamma, feed larger values to the icdf of GPD
 
+        '''
         # define random input
         self.sample_input = keras.Input(
                 name = "sample_input",
@@ -370,7 +315,7 @@ class ConditionalGammaEVM():
             dtype = self.dtype,
         )
 
-        self.sample_model = keras.Model(
+        self._sample_model = keras.Model(
             inputs=[
                 self.x_input,
                 self.sample_input,
@@ -380,40 +325,4 @@ class ConditionalGammaEVM():
             ],
             name="sample_model",
         )
-    
-     
-    def fit(self, 
-        X, Y,
-        batch_size : int = 1000,
-        epochs : int = 10,
-        learning_rate : float = 5e-3,
-        weight_decay : float = 0.0,
-        epsilon : float = 1e-8,
-    ):
-
-        learning_rate = np.cast[self.dtype.as_numpy_dtype](learning_rate)
-        weight_decay = np.cast[self.dtype.as_numpy_dtype](weight_decay)
-        epsilon = np.cast[self.dtype.as_numpy_dtype](epsilon)
-
-        # define optimizer and train_step
-        optimizer = tfa.optimizers.AdamW(learning_rate=learning_rate, weight_decay=weight_decay, epsilon=epsilon)
-
-        # this keras model is the one that we use for training
-        self.mlp.model.compile(optimizer=optimizer, loss=gevm_nll_loss(self.dtype))
-
-        history = self.mlp.model.fit(
-            X,
-            Y,
-            batch_size=batch_size,
-            epochs=epochs,
-            # We pass some validation for
-            # monitoring validation loss and metrics
-            # at the end of each epoch
-            #validation_data=(x_val, y_val),
-        )
-
-    def save(self, h5_addr : str) -> None:
-        self.mlp.model.save(h5_addr)
-        with h5py.File(h5_addr, 'a') as hf:
-            hf.create_dataset('x_dim',self.x_dim)
-            hf.create_dataset('hidden_sizes',self.hidden_sizes)
+        '''

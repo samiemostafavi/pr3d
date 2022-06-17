@@ -4,14 +4,29 @@ from keras import layers
 
 from pr3d.common.bayesian import SavableDenseFlipout
 
+
+def create_model_inputs(
+    feature_names,
+    dtype=tf.float32
+):
+    inputs = {}
+    for feature_name in feature_names:
+        inputs[feature_name] = layers.Input(
+            name=feature_name, 
+            shape=(1,), 
+            dtype=dtype,
+        )
+    return inputs
+
+
 class MLP():
 
     def __init__(
         self,
         bayesian,
         batch_size,
+        feature_names : list, #list(str)
         name : str = 'mlp',
-        input_shape = (3),
         output_layer_config : dict = None,
         dtype = tf.dtypes.float64,
         hidden_sizes = (16,16), 
@@ -25,35 +40,43 @@ class MLP():
         :param dropout_ph: None if no dropout should be used. Else a scalar placeholder that determines the prob of dropping a node.
         Remember to set placeholder to Zero during test / eval
         """
-        # batch_size is needed if bayesian is set
 
         if loaded_mlp_model is not None:
             # set the model
             self._model = loaded_mlp_model
 
-            # find the input and output layers
-            self._input_layer = self._model.input
-            self._output_layer = self._model.get_layer('output')
+            # find the input layer and slices
+            self._input_layer = self._model.get_layer('input')
+            # find slice layer names
+            slice_names = []
+            int_node = self._input_layer._inbound_nodes[0]
+            for idx, layer in enumerate(int_node.inbound_layers):
+                slice_names.append(layer.name)
+            # create input slices by concatenating slices
+            self._input_slices = {}
+            for slice_name in slice_names:
+                self._input_slices[slice_name] = self._model.get_layer(slice_name).input
 
+
+            # find the output layer and slices
+            self._output_layer = self._model.get_layer('output')
             # find slice layer names
             slice_names = []
             int_node = self._output_layer._inbound_nodes[0]
             for idx, layer in enumerate(int_node.inbound_layers):
                 slice_names.append(layer.name)
-
             # create output layer by concatenating slices
             self._output_slices = {}
             for slice_name in slice_names:
                 self._output_slices[slice_name] = self._model.get_layer(slice_name).output
 
         else:
+
             # Using functional API of keras instead of sequential
-            self._input_layer = keras.Input(
-                    name = "input",
-                    shape=input_shape,
-                    batch_size=batch_size,
-                    dtype=dtype,
-            )
+            self._input_slices = create_model_inputs(feature_names)
+            self._input_layer = keras.layers.concatenate(list(self._input_slices.values()),name='input')
+
+            #features = layers.BatchNormalization()(features)
 
             for idx, hidden_size in enumerate(hidden_sizes):
                 if idx == 0:
@@ -62,10 +85,11 @@ class MLP():
                 # create the new hidden layer
                 if bayesian:
                     hidden_layer = SavableDenseFlipout(
-                        name=slice_name,
+                        name="hidden_%d" % idx,
                         units=hidden_size,
                         activation=hidden_activation,
                         batch_size=batch_size,
+                        dtype=dtype,
                     )
                 else:
                     hidden_layer = layers.Dense(
@@ -95,6 +119,7 @@ class MLP():
                         units=output_layer_config[slice_name]['slice_size'],
                         activation=output_layer_config[slice_name]['slice_activation'],
                         batch_size=batch_size,
+                        dtype=dtype,
                     )
                 else:
                     slice_dense = layers.Dense(
@@ -113,12 +138,16 @@ class MLP():
             # print(self._output_layer)
 
             # create model
-            self._model = keras.Model(inputs=self._input_layer,outputs=self._output_layer,name=name)
+            self._model = keras.Model(inputs=self._input_slices,outputs=self._output_layer,name=name)
             #self._model.summary()
 
     @property
     def input_layer(self):
         return self._input_layer
+
+    @property
+    def input_slices(self):
+        return self._input_slices
 
     @property
     def output_slices(self):
@@ -146,7 +175,6 @@ class SLP():
         """
         Remember to set placeholder to Zero during test / eval
         """
-        # batch_size is needed if bayesian is set
 
         if loaded_slp_model is not None:
             # set the model

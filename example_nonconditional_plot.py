@@ -16,7 +16,7 @@ print(df)
 model = GaussianMM(
     #centers= 8,
     dtype = dtype,
-    bayesian = False,
+    bayesian = True,
     #batch_size = 1024,
 )
 

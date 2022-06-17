@@ -55,19 +55,15 @@ class GaussianMM(NonConditionalDensityEstimator):
         }
         
         # ask NonConditionalDensityEstimator to form the SLP
-        self.create_slp(h5_addr = h5_addr)
-        #self._slp_model.model.summary()
+        self.create_core(h5_addr = h5_addr)
+        #self._core_model.model.summary()
 
         # create models for inference: 
         # self._prob_pred_model, self._sample_model, self._params_model, self._training_model
         self.create_models()
 
-    @property
-    def centers(self):
-        return self._centers
-
     def save(self, h5_addr : str) -> None:
-        self.slp_model.model.save(h5_addr)
+        self.core_model.model.save(h5_addr)
         with h5py.File(h5_addr, 'a') as hf:
             hf.create_dataset('centers', shape=(1,), data=int(self.centers))
             hf.create_dataset('bayesian', shape=(1,), data=int(self.bayesian))
@@ -80,12 +76,12 @@ class GaussianMM(NonConditionalDensityEstimator):
         # now lets define the models to get probabilities
 
         # define X input
-        self.dummy_input = self.slp_model.input_layer
+        self.dummy_input = self.core_model.input_layer
 
         # put mixture components together
-        self.weights = self.slp_model.output_slices['mixture_weights']
-        self.locs = self.slp_model.output_slices['mixture_locations']
-        self.scales = self.slp_model.output_slices['mixture_scales']
+        self.weights = self.core_model.output_slices['mixture_weights']
+        self.locs = self.core_model.output_slices['mixture_locations']
+        self.scales = self.core_model.output_slices['mixture_scales']
 
         # create params model
         self._params_model = keras.Model(
@@ -145,6 +141,10 @@ class GaussianMM(NonConditionalDensityEstimator):
         # defne the loss function
         # y_pred will be self.log_pdf which is (batch_size,1)
         self._loss = lambda y_true, y_pred: -tf.reduce_sum(y_pred)
+
+    @property
+    def centers(self):
+        return self._centers
 
         
 

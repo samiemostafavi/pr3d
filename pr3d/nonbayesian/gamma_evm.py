@@ -63,15 +63,15 @@ class GammaEVM(NonConditionalDensityEstimator):
         }
 
         # ask NonConditionalDensityEstimator to form the SLP
-        self.create_slp(h5_addr = h5_addr)
-        #self._slp_model.model.summary()
+        self.create_core(h5_addr = h5_addr)
+        #self._core_model.model.summary()
 
         # create models for inference: 
         # self._prob_pred_model, self._sample_model, self._params_model, self._training_model
         self.create_models()
 
     def save(self, h5_addr : str) -> None:
-        self.slp_model.model.save(h5_addr)
+        self.core_model.model.save(h5_addr)
         with h5py.File(h5_addr, 'a') as hf:
             hf.create_dataset('bayesian', shape=(1,), data=int(self.bayesian))
             if self.batch_size is not None:
@@ -82,14 +82,27 @@ class GammaEVM(NonConditionalDensityEstimator):
         # now lets define the models to get probabilities
 
         # define dummy input
-        self.dummy_input = self.slp_model.input_layer
+        self.dummy_input = self.core_model.input_layer
 
         # put mixture components together (from X)
-        self.gamma_shape = self.slp_model.output_slices['gamma_shape']
-        self.gamma_rate = self.slp_model.output_slices['gamma_rate']
-        self.tail_param = self.slp_model.output_slices['tail_parameter']
-        self.tail_threshold = self.slp_model.output_slices['tail_threshold']
-        self.tail_scale = self.slp_model.output_slices['tail_scale']
+        self.gamma_shape = self.core_model.output_slices['gamma_shape']
+        self.gamma_rate = self.core_model.output_slices['gamma_rate']
+        self.tail_param = self.core_model.output_slices['tail_parameter']
+        self.tail_threshold = self.core_model.output_slices['tail_threshold']
+        self.tail_scale = self.core_model.output_slices['tail_scale']
+
+        # these models are used for printing paramters
+        self._params_model = keras.Model(
+            inputs=self.dummy_input,
+            outputs=[
+                self.gamma_shape,
+                self.gamma_rate,
+                self.tail_param,
+                self.tail_threshold,
+                self.tail_scale,
+            ],
+            name="params_model",
+        )
 
         # build gamma density (from X)
         gamma = tfd.Gamma(concentration=tf.squeeze(self.gamma_shape), rate=tf.squeeze(self.gamma_rate))
@@ -191,19 +204,6 @@ class GammaEVM(NonConditionalDensityEstimator):
                 self.ecdf
             ],
             name="prob_pred_model",
-        )
-
-        # these models are used for printing paramters
-        self._params_model = keras.Model(
-            inputs=self.dummy_input,
-            outputs=[
-                self.gamma_shape,
-                self.gamma_rate,
-                self.tail_param,
-                self.tail_threshold,
-                self.tail_scale,
-            ],
-            name="params_model",
         )
 
         self.norm_factor_model = keras.Model(

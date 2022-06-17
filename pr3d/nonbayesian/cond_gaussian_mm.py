@@ -8,175 +8,173 @@ import h5py
 from typing import Tuple
 tfd = tfp.distributions
 
-from pr3d.nonbayesian.tf_core import MLP
-from pr3d.common.gmm import *
+from pr3d.common.core import ConditionalDensityEstimator
 
-class ConditionalGaussianMM():    
+class ConditionalGaussianMM(ConditionalDensityEstimator):
     def __init__(
         self,
-        h5_addr : str = None,
         centers : int = 8,
-        x_dim : int = 3,
-        hidden_sizes : tuple = (16,16),
+        x_dim : list = None,
+        h5_addr : str = None,
+        bayesian : bool = False,
+        batch_size : int = None,
         dtype : str = 'float64',
+        hidden_sizes = (16,16), 
+        hidden_activation = 'tanh',
     ):
 
-        # configure keras to use dtype
-        tf.keras.backend.set_floatx(dtype)
+        super(ConditionalGaussianMM,self).__init__(
+            x_dim = x_dim,
+            h5_addr = h5_addr,
+            bayesian = bayesian,
+            batch_size = batch_size,
+            dtype = dtype,
+            hidden_sizes = hidden_sizes,
+            hidden_activation = hidden_activation,
+        )
 
-        # for creating the tensors
-        if dtype == 'float64':
-            self.dtype = tf.float64
-        elif dtype == 'float32':
-            self.dtype = tf.float32
-        elif dtype == 'float16':
-            self.dtype = tf.float16
-        else:
-            raise Exception("unknown dtype format")
-
+        # figure out parameters
         if h5_addr is not None:
             # read side parameters
             with h5py.File(h5_addr, 'r') as hf:
-                self.centers = hf.get('centers')
-                self.x_dim = hf.get('x_dim')
-                self.hidden_sizes = hf.get('hidden_sizes')
+                self._x_dim = [ encoded.decode("utf-8")  for encoded in list(hf.get('x_dim')[0])]
+                self._centers = int(hf.get('centers')[0])
+                self._bayesian = bool(hf.get('bayesian')[0])
 
-            # load the keras model
-            loaded_mlp_model = keras.models.load_model(h5_addr, custom_objects={ 'loss' : gmm_nll_loss(self.centers) })
-            #self._model.summary()
+                if 'batch_size' in hf.keys():
+                    self._batch_size = int(hf.get('batch_size')[0])
+                
+                if 'hidden_sizes' in hf.keys():
+                    self._hidden_sizes = tuple(hf.get('hidden_sizes')[0])
 
-            # create the model
-            self.create_model(loaded_mlp_model)
+                if 'hidden_activation' in hf.keys():
+                    self._hidden_activation = str(hf.get('hidden_activation')[0].decode("utf-8"))
+
         else:
+            self._x_dim = x_dim
+            self._centers = centers
+            self._bayesian = bayesian
+            self._batch_size = batch_size
+            self._hidden_sizes = hidden_sizes
+            self._hidden_activation = hidden_activation
 
-            self.centers = centers
-            self.x_dim = x_dim
-            self.hidden_sizes = hidden_sizes
+        # create parameters dict
+        self._params_config = {
+            'mixture_weights': { 
+                'slice_size' : self.centers,
+                'slice_activation' : 'softmax',
+            },
+            'mixture_locations': { 
+                'slice_size' : self.centers,
+                'slice_activation' : None,
+            },
+            'mixture_scales': { 
+                'slice_size' : self.centers,
+                'slice_activation' : 'softplus',
+            },
+        }
 
-            # create the mlp model
-            self.create_model()
+        # ask ConditionalDensityEstimator to form the MLP
+        self.create_core(h5_addr = h5_addr)
+        #self.core_model.model.summary()
 
-    def prob_single(self, x : npt.NDArray[np.float64], y : np.float64) -> Tuple[np.float64, np.float64, np.float64]:
+        # create models for inference: 
+        # self._prob_pred_model, self._sample_model, self._params_model, self._training_model
+        self.create_models()
 
-        # for single value x (not batch)
-        # x : np.array of np.float64 with the shape (ndim)
-        # y : np.float64 number
-        [pdf,log_pdf,ecdf] = self.prob_pred_model([np.expand_dims(x, axis=0),np.expand_dims(y, axis=0)], training=False)
-        return np.squeeze(pdf.numpy()),np.squeeze(log_pdf.numpy()),np.squeeze(ecdf.numpy())
+    def save(self, h5_addr : str) -> None:
+        self.core_model.model.save(h5_addr)
+        with h5py.File(h5_addr, 'a') as hf:
+            hf.create_dataset('x_dim', shape=(1,len(self.x_dim)), data=self.x_dim)
+            hf.create_dataset('centers', shape=(1,), data=int(self.centers))
+            hf.create_dataset('bayesian', shape=(1,), data=int(self.bayesian))
 
-    def prob_batch(self, x : npt.NDArray[np.float64], y : npt.NDArray[np.float64]):
+            if self.batch_size is not None:
+                hf.create_dataset('batch_size', shape=(1,), data=int(self.batch_size))
 
-        # for large batches of input x
-        # x : np.array of np.float64 with the shape (?,ndim)
-        # y : np.array of np.float64 with the shape (?)
-        [pdf,log_pdf,ecdf] = self.prob_pred_model.predict(
-            [x,y],
-            batch_size=None,
-            verbose=0,
-            steps=None,
-            callbacks=None,
-            max_queue_size=10,
-            workers=1,
-            use_multiprocessing=False,
-        )
-        return pdf,log_pdf,ecdf
+            if self.hidden_sizes is not None:
+                hf.create_dataset('hidden_sizes', shape=(1,len(self.hidden_sizes)), data=list(self.hidden_sizes))
 
-    def create_model(self, loaded_mlp_model : keras.Model = None):
+            if self.hidden_activation is not None:
+                hf.create_dataset('hidden_activation', shape=(1,), data=str(self.hidden_activation))
 
-        if loaded_mlp_model is not None:
-            self.mlp = MLP(
-                loaded_mlp_model = loaded_mlp_model
-            )
-        else:
-            self._params_config = {
-                'mixture_weights': { 
-                    'slice_size' : self.centers,
-                    'slice_activation' : 'softmax',
-                },
-                'mixture_locations': { 
-                    'slice_size' : self.centers,
-                    'slice_activation' : None,
-                },
-                'mixture_scales': { 
-                    'slice_size' : self.centers,
-                    'slice_activation' : 'softplus',
-                },
-            }
-
-            self.mlp = MLP(
-                name = 'gmm_keras_model',
-                input_shape=(self.x_dim),
-                output_layer_config=self.params_config,
-                hidden_sizes=self.hidden_sizes,
-                hidden_activation='tanh',
-                dtype=self.dtype,
-            )  
-        #self.mlp.model.summary()    
-
-        # now lets define the models to get probabilities
-
-        # define Y input
-        self.y_input = keras.Input(
-                name = "y_input",
-                shape=(1),
-                dtype=self.dtype,
-        )
+    def create_models(self):
 
         # define X input
-        self.x_input = self.mlp.input_layer
+        self.x_input = list(self.core_model.input_slices.values())
 
         # put mixture components together
-        self.weights = self.mlp.output_slices['mixture_weights']
-        self.locs = self.mlp.output_slices['mixture_locations']
-        self.scales = self.mlp.output_slices['mixture_scales']
+        self.weights = self.core_model.output_slices['mixture_weights']
+        self.locs = self.core_model.output_slices['mixture_locations']
+        self.scales = self.core_model.output_slices['mixture_scales']
 
+        # create params model
+        self._params_model = keras.Model(
+            inputs=self.x_input,
+            outputs=[
+                self.weights,
+                self.locs,
+                self.scales,
+            ],
+            name="params_model",
+        )
+
+        # create prob model
         cat = tfd.Categorical(probs=self.weights,dtype=self.dtype)
         components = [tfd.Normal(loc=loc, scale=scale) for loc, scale
                         in zip(tf.unstack(self.locs, axis=1), tf.unstack(self.scales, axis=1))]
         mixture = tfd.Mixture(cat=cat, components=components)
 
-        # define pdf, logpdf and loglikelihood
-        self.pdf = mixture.prob(self.y_input)
-        self.log_pdf = mixture.log_prob(self.y_input)
-        self.ecdf = mixture.cdf(self.y_input)
-
-        # these models are used for probability predictions
-        self.theta_pred_model = keras.Model(inputs=self.x_input,outputs=[self.weights,self.locs,self.scales],name="theta_pred_model")
-        self.prob_pred_model = keras.Model(inputs=[self.x_input,self.y_input],outputs=[self.pdf,self.log_pdf,self.ecdf],name="prob_pred_model")
-     
-    def fit(self, 
-        X, Y,
-        batch_size : int = 1000,
-        epochs : int = 10,
-        learning_rate : float = 5e-3,
-        weight_decay : float = 0.0,
-        epsilon : float = 1e-8,
-    ):
-
-        learning_rate = np.cast[self.dtype.as_numpy_dtype](learning_rate)
-        weight_decay = np.cast[self.dtype.as_numpy_dtype](weight_decay)
-        epsilon = np.cast[self.dtype.as_numpy_dtype](epsilon)
-        
-        # define optimizer and train_step
-        optimizer = tfa.optimizers.AdamW(learning_rate=learning_rate, weight_decay=weight_decay, epsilon=epsilon)
-
-        # this keras model is the one that we use for training
-        self.mlp.model.compile(optimizer=optimizer, loss=gmm_nll_loss(self.centers,self.dtype))
-
-        history = self.mlp.model.fit(
-            X,
-            Y,
-            batch_size=batch_size,
-            epochs=epochs,
-            # We pass some validation for
-            # monitoring validation loss and metrics
-            # at the end of each epoch
-            #validation_data=(x_val, y_val),
+        # define Y input
+        self.y_input = keras.Input(
+                name = "y_input",
+                shape=(1),
+                batch_size = self.batch_size,
+                dtype=self.dtype,
         )
 
-    def save(self, h5_addr : str) -> None:
-        self.mlp.model.save(h5_addr)
-        with h5py.File(h5_addr, 'a') as hf:
-            hf.create_dataset('centers',self.centers)
-            hf.create_dataset('x_dim',self.x_dim)
-            hf.create_dataset('hidden_sizes',self.hidden_sizes)
+        # define pdf, logpdf and loglikelihood
+        # CAUTION: tfd.Mixture needs this transpose, otherwise, would give (100,100)
+        self.pdf = tf.transpose(mixture.prob(tf.transpose(self.y_input)))
+        self.log_pdf = tf.transpose(mixture.log_prob(tf.transpose(self.y_input)))
+        self.ecdf = tf.transpose(mixture.cdf(tf.transpose(self.y_input)))
+
+        # these models are used for probability predictions
+        self._prob_pred_model = keras.Model(
+            inputs=[
+                self.x_input,
+                self.y_input,
+            ],
+            outputs=[
+                self.pdf,
+                self.log_pdf,
+                self.ecdf
+            ],
+            name="prob_pred_model",
+        )
+
+        # pipeline training model
+        self._pl_training_model = keras.Model(
+            inputs={**self.core_model.input_slices, 'y_input':self.y_input},
+            outputs=[
+                self.log_pdf, # in shape: (batch_size,1)
+            ]
+        )
+
+        # normal training model
+        self._training_model = keras.Model(
+            inputs=[
+                self.x_input,
+                self.y_input,    
+            ],
+            outputs=[
+                self.log_pdf,
+            ]
+        )
+        # defne the loss function
+        # y_pred will be self.log_pdf which is (batch_size,1)
+        self._loss = lambda y_true, y_pred: -tf.reduce_sum(y_pred)
+
+    @property
+    def centers(self):
+        return self._centers
