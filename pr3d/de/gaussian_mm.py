@@ -128,7 +128,15 @@ class GaussianMM(NonConditionalDensityEstimator):
             name="prob_pred_model",
         )
 
-        # training model
+        # pipeline training model
+        self._pl_training_model = keras.Model(
+            inputs={'dummy_input':self.dummy_input, 'y_input':self.y_input},
+            outputs=[
+                self.log_pdf, # in shape: (batch_size,1)
+            ]
+        )
+
+        # normal training model
         self._training_model = keras.Model(
             inputs=[
                 self.dummy_input,

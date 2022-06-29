@@ -239,6 +239,32 @@ class NonConditionalDensityEstimator(DensityEstimator):
             #validation_data=(x_val, y_val),
         )
 
+    def fit_pipeline(self,
+        train_dataset,
+        test_dataset,
+        optimizer,
+        batch_size : int = 1000,
+        epochs : int = 10,
+    ):
+
+        # this keras model is the one that we use for training
+        #self.core_model.model.compile(optimizer=optimizer, loss=self.loss)
+        self.pl_training_model.compile(optimizer=optimizer, loss=self.loss)
+
+        # In this train_dataset, there must be an all zero column 
+
+        #history = self.core_model.model.fit(
+        self.pl_training_model.fit(
+            train_dataset,
+            batch_size=batch_size,
+            epochs=epochs,
+            # We pass some validation for
+            # monitoring validation loss and metrics
+            # at the end of each epoch
+            validation_data=test_dataset,
+            #metrics=[keras.metrics.KLDivergence()]
+        )
+
 
 class ConditionalDensityEstimator(DensityEstimator):
     def __init__(
