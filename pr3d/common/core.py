@@ -150,7 +150,7 @@ class NonConditionalDensityEstimator(DensityEstimator):
 
     def prob_batch(self, 
         y : npt.NDArray[np.float64],
-        batch_size=None,
+        batch_size=32,
         verbose=0,
         steps=None,
         max_queue_size=10,
@@ -161,9 +161,15 @@ class NonConditionalDensityEstimator(DensityEstimator):
         # for large batches of input y
         # y : np.array of np.float64 with the shape (batch_size,1) e.g. np.array([5,6,7,8,9,10])
         x = np.zeros(len(y))
+
+        # IMPORTANT: batch size by default in keras is set to 32, if data length is 32*k+1, it raises error.
+        if len(y) > batch_size:
+            if len(y) % batch_size == 1:
+                batch_size = batch_size*2
+
         [pdf,log_pdf,ecdf] = self.prob_pred_model.predict(
             [x,y],
-            batch_size=batch_size,
+            batch_size=len(y),
             verbose=verbose,
             steps=steps,
             callbacks=None,

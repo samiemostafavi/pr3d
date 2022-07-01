@@ -83,6 +83,8 @@ class GammaEVM(NonConditionalDensityEstimator):
 
         # define dummy input
         self.dummy_input = self.core_model.input_layer
+        #t = tf.fill(tf.shape(self.core_model.input_layer), 0.0)
+
 
         # put mixture components together (from X)
         self.gamma_shape = self.core_model.output_slices['gamma_shape']
