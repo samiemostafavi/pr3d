@@ -271,11 +271,15 @@ class ConditionalGammaEVM(ConditionalDensityEstimator):
         self._loss = lambda y_true, y_pred: -tf.reduce_sum(y_pred)
 
     def sample_n(self, 
-        x : npt.NDArray[np.float64],
+        x,
+        batch_size : None,
         seed,
     ):
 
-        prediction_res = self.params_model.predict(x)
+        prediction_res = self.params_model.predict(
+            x,
+            batch_size,
+        )
 
         result_dict = {}
         for idx,param in enumerate(self.params_config):
