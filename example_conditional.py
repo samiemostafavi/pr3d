@@ -41,12 +41,12 @@ train_dataset, test_dataset = parquet_tf_pipeline_2(
 #    print(ds)
 
 # initiate the non conditional predictor
-model = ConditionalGaussianMM(
-    centers= 4,
-    bayesian = True,
+model = ConditionalGammaEVM(
+    #centers= 4,
+    bayesian = False,
     #batch_size = 1024,
     x_dim = feature_names,
-    hidden_sizes = (20, 50, 20), #(20, 50, 20) for bayesian, (16,16) for non-bayesian
+    hidden_sizes = (16,16), #(20, 50, 20) for bayesian, (16,16) for non-bayesian
     hidden_activation = 'tanh', #'sigmoid'
     dtype = dtype,
 )
@@ -54,9 +54,9 @@ model = ConditionalGaussianMM(
 model.fit_pipeline(
     train_dataset,
     test_dataset,
-    optimizer = keras.optimizers.Adam(learning_rate=0.005),
+    optimizer = keras.optimizers.Adam(learning_rate=0.01),
     batch_size = 1024,
-    epochs = 1000, #1000
+    epochs = 200, #1000
 )
 
 condition = [0,0,0]
@@ -65,12 +65,12 @@ print(f"Parameters of {condition}: {model.get_parameters(x=condition)}")
 
 #model.core_model.model.summary()
 
-model.save("gmm_bayes_conditional_model.h5")
+model.save("evm_conditional_model.h5")
 del model
 
 
-loaded_model = ConditionalGaussianMM(
-    h5_addr = "gmm_bayes_conditional_model.h5"
+loaded_model = ConditionalGammaEVM(
+    h5_addr = "evm_conditional_model.h5"
 )
 
 print(f"Model loaded, bayesian: {loaded_model.bayesian}, x_dim: {loaded_model.x_dim}, hidden_sizes: {loaded_model.hidden_sizes}")
@@ -116,4 +116,4 @@ else:
 ax.legend(['Data', 'Prediction'])
 
 fig.tight_layout()
-plt.savefig('gmm_bayes_conditional_model.png')
+plt.savefig('evm_conditional_model.png')

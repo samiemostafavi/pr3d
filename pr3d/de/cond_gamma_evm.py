@@ -6,6 +6,9 @@ import tensorflow_probability as tfp
 import tensorflow_addons as tfa
 import h5py
 from typing import Tuple
+import numpy.typing as npt
+import numpy as np
+
 tfd = tfp.distributions
 
 from pr3d.common.evm import *
@@ -267,62 +270,66 @@ class ConditionalGammaEVM(ConditionalDensityEstimator):
         # y_pred will be self.log_pdf which is (batch_size,1)
         self._loss = lambda y_true, y_pred: -tf.reduce_sum(y_pred)
 
-        # create the sampling model
-        # sample_input: random uniform numbers in [0,1]
-        # feed them to the inverse cdf of the distribution
+    def sample_n(self, 
+        x : npt.NDArray[np.float64],
+        seed,
+    ):
 
-        # we use the threshold in CDF domain which is norm_factor and create cdf_bool_split_t
-        # split sample_input into the ones greater or smaller than norm_factor
-        # feed smallers to the icdf of Gamma, feed larger values to the icdf of GPD
+        prediction_res = self.params_model.predict(x)
 
-        '''
-        # define random input
-        self.sample_input = keras.Input(
-                name = "sample_input",
-                shape=(1),
-                #batch_size = 100,
-                dtype=self.dtype,
+        result_dict = {}
+        for idx,param in enumerate(self.params_config):
+            result_dict[param] = np.squeeze(prediction_res[idx])
+
+        threshold_act_t = tf.convert_to_tensor(result_dict['tail_threshold'], dtype=self.dtype)
+        gamma_concentration_t = tf.convert_to_tensor(result_dict['gamma_shape'], dtype=self.dtype)
+        gamma_rate_t = tf.convert_to_tensor(result_dict['gamma_rate'], dtype=self.dtype)
+        gpd_scale_t = tf.convert_to_tensor(result_dict['tail_scale'],dtype=self.dtype)
+        gpd_concentration_t = tf.convert_to_tensor(result_dict['tail_parameter'],dtype=self.dtype)
+
+        rng = tf.random.Generator.from_seed(seed)
+        samples_t = rng.uniform(
+            minval = 0.00,
+            maxval = 1.00,
+            shape = tf.shape(gamma_concentration_t),#[n],
+            dtype = self.dtype,
         )
+
+        gamma = tfp.distributions.Gamma(
+            concentration=gamma_concentration_t,#gamma_concentration.astype(dtype),
+            rate=gamma_rate_t,#gamma_rate.astype(dtype),
+        )
+
+        threshold_qnt_t = gamma.cdf(threshold_act_t)
 
         # split the samples into bulk and tail according to the norm_factor (from X and Y)
-        cdf_bool_split_t = split_bulk_gpd_cdf(
-            norm_factor = tf.constant(1.00,dtype=self.dtype)-self.norm_factor,
-            random_input = self.sample_input,
-            dtype = self.dtype,
+        # gives a tensor, indicating which random_input are greater than norm_factor
+        # greater than threshold is true, else false
+        bool_split_t = tf.greater(samples_t, threshold_qnt_t) # this is in Boolean
+
+        # gamma samples tensor
+        gamma_samples_t = gamma.quantile(samples_t)
+        
+        # gpd samples tensor
+        gpd_presamples_t = tf.divide(
+            samples_t-threshold_qnt_t,
+            tf.constant(1.00,dtype=self.dtype)-threshold_qnt_t,
         )
 
-        # get gpd samples
-        gpd_sample_t = gpd_quantile(
-            tail_threshold = self.tail_threshold,
-            tail_param = self.tail_param,
-            tail_scale = self.tail_scale,
-            norm_factor = self.norm_factor,
-            random_input = tf.squeeze(self.sample_input),
-            dtype = self.dtype,
+        gpd = tfp.distributions.GeneralizedPareto(
+            loc = 0.00,
+            scale = gpd_scale_t,#gpd_scale.astype(dtype),
+            concentration = gpd_concentration_t,#gpd_concentration.astype(dtype),
         )
 
-        # get bulk samples
-        # ONLY WORKS WITH tf.compat.v1.disable_eager_execution()
-        bulk_sample_t = gamma.quantile(
-            tf.squeeze(self.sample_input)
-        )
+        gpd_samples_t = gpd.quantile(gpd_presamples_t)/(tf.constant(1.00,dtype=self.dtype)-threshold_qnt_t)+threshold_act_t
 
         # pass them through the mixture filter
-        self.sample = mixture_sample(
-            cdf_bool_split_t = cdf_bool_split_t,
-            gpd_sample_t = gpd_sample_t,
-            bulk_sample_t = bulk_sample_t,
-            dtype = self.dtype,
+        result = mixture_sample(
+            cdf_bool_split_t = bool_split_t,
+            gpd_sample_t = gpd_samples_t,
+            bulk_sample_t = gamma_samples_t,
+            dtype=self.dtype,
         )
 
-        self._sample_model = keras.Model(
-            inputs=[
-                self.x_input,
-                self.sample_input,
-            ],
-            outputs=[
-                self.sample,
-            ],
-            name="sample_model",
-        )
-        '''
+        return result.numpy()
