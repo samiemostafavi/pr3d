@@ -125,7 +125,8 @@ class ConditionalGammaEVM(ConditionalDensityEstimator):
         # these models are used for printing paramters
         self._params_model = keras.Model(
             #inputs=list(self.x_input.values()),
-            inputs=self.x_input,
+            #inputs=self.x_input,
+            inputs = {**self.core_model.input_slices},
             outputs=[
                 self.gamma_shape,
                 self.gamma_rate,
@@ -272,15 +273,12 @@ class ConditionalGammaEVM(ConditionalDensityEstimator):
 
     def sample_n(self, 
         x,
-        batch_size : None,
-        seed,
+        rng : tf.random.Generator = tf.random.Generator.from_seed(0),
     ):
 
-        prediction_res = self.params_model.predict(
+        prediction_res = self._params_model.predict(
             x,
-            batch_size,
         )
-
         result_dict = {}
         for idx,param in enumerate(self.params_config):
             result_dict[param] = np.squeeze(prediction_res[idx])
@@ -291,7 +289,6 @@ class ConditionalGammaEVM(ConditionalDensityEstimator):
         gpd_scale_t = tf.convert_to_tensor(result_dict['tail_scale'],dtype=self.dtype)
         gpd_concentration_t = tf.convert_to_tensor(result_dict['tail_parameter'],dtype=self.dtype)
 
-        rng = tf.random.Generator.from_seed(seed)
         samples_t = rng.uniform(
             minval = 0.00,
             maxval = 1.00,
