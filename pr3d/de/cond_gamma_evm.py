@@ -312,18 +312,27 @@ class ConditionalGammaEVM(ConditionalDensityEstimator):
         gamma_samples_t = gamma.quantile(samples_t)
         
         # gpd samples tensor
-        gpd_presamples_t = tf.divide(
-            samples_t-threshold_qnt_t,
+        #gpd_presamples_t = tf.divide(
+        #    samples_t-threshold_qnt_t,
+        #    tf.constant(1.00,dtype=self.dtype)-threshold_qnt_t,
+        #)
+
+        #gpd = tfp.distributions.GeneralizedPareto(
+        #    loc = 0.00,
+        #    scale = gpd_scale_t,#gpd_scale.astype(dtype),
+        #    concentration = gpd_concentration_t,#gpd_concentration.astype(dtype),
+        #)
+
+        #gpd_samples_t = gpd.quantile(gpd_presamples_t)/(tf.constant(1.00,dtype=self.dtype)-threshold_qnt_t)+threshold_act_t
+
+        gpd_samples_t = gpd_quantile(
+            threshold_act_t,
+            gpd_concentration_t,
+            gpd_scale_t,
             tf.constant(1.00,dtype=self.dtype)-threshold_qnt_t,
+            samples_t,
+            dtype = self.dtype,
         )
-
-        gpd = tfp.distributions.GeneralizedPareto(
-            loc = 0.00,
-            scale = gpd_scale_t,#gpd_scale.astype(dtype),
-            concentration = gpd_concentration_t,#gpd_concentration.astype(dtype),
-        )
-
-        gpd_samples_t = gpd.quantile(gpd_presamples_t)/(tf.constant(1.00,dtype=self.dtype)-threshold_qnt_t)+threshold_act_t
 
         # pass them through the mixture filter
         result = mixture_sample(
