@@ -360,6 +360,7 @@ class ConditionalDensityEstimator(DensityEstimator):
 
         batch_input = [ tf.expand_dims(tf.convert_to_tensor(x[:,idx],dtype=self.dtype),axis=1) 
                 for idx in range(len(self.x_dim)) ]
+
         batch_input.append(tf.convert_to_tensor(y,dtype=self.dtype))
 
         # for large batches of input x
