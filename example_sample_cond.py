@@ -8,7 +8,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import time
 
-from pr3d.de import ConditionalGammaEVM, ConditionalGaussianMM
+from pr3d.de import ConditionalGammaEVM, ConditionalGaussianMM, ConditionalGammaMixtureEVM
 from utils.dataset import create_dataset, load_parquet
 
 
@@ -45,8 +45,8 @@ N = 100000 # 489 seconds for 100k samples, 17 seconds for 10k samples
 X = { 'queue_length1': np.zeros(N), 'queue_length2': np.zeros(N), 'queue_length3' : np.zeros(N) }
 
 # load the conditional trained model
-conditional_delay_model = ConditionalGaussianMM(
-    h5_addr = "gmm_conditional_model.h5",
+conditional_delay_model = ConditionalGammaMixtureEVM(
+    h5_addr = "gmevm_conditional_model.h5",
     dtype = dtype,
 )
 start = time.time()
@@ -65,4 +65,4 @@ sns.histplot(
 )
 ax.set_xlim(0,100)
 fig.tight_layout()
-plt.savefig('cond_sample_n_test_gmm.png')
+plt.savefig('cond_sample_n_test_gmevm.png')
