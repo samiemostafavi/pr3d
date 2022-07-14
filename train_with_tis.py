@@ -3,7 +3,7 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 import pandas as pd
 
-from pr3d.nonbayesian import ConditionalGammaEVM, GammaEVM
+from pr3d.de import ConditionalGammaEVM, GammaEVM
 from .utils.dataset import create_dataset, load_parquet
 
 

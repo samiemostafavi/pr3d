@@ -7,7 +7,7 @@ import tensorflow as tf
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from pr3d.nonbayesian import GammaEVM, ConditionalGammaEVM
+from pr3d.de import GammaEVM, ConditionalGammaEVM
 from .utils.dataset import create_dataset, load_parquet
 
 

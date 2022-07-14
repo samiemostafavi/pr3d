@@ -140,6 +140,7 @@ class ConditionalGaussianMM(ConditionalDensityEstimator):
         self.pdf = tf.transpose(mixture.prob(tf.transpose(self.y_input)))
         self.log_pdf = tf.transpose(mixture.log_prob(tf.transpose(self.y_input)))
         self.ecdf = tf.transpose(mixture.cdf(tf.transpose(self.y_input)))
+        self.bulk_mean = mixture.mean()
 
         # these models are used for probability predictions
         self._prob_pred_model = keras.Model(
