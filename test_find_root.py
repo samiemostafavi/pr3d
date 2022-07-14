@@ -1,9 +1,11 @@
 import numpy as np
 from scipy import optimize
+import tensorflow as tf
+tf.config.set_visible_devices([], 'GPU')
+
 from pr3d.de import ConditionalGaussianMM
 import matplotlib.pyplot as plt
 import tensorflow_probability as tfp
-import tensorflow as tf
 import time 
 """
 def F(x, a, b):
@@ -33,7 +35,7 @@ x = { 'queue_length1': np.zeros(N), 'queue_length2': np.zeros(N), 'queue_length3
 x_list = np.array([np.array([*items]) for items in zip(*x.values())])
 
 samples = np.random.uniform(low=0.0,high=1.0,size=N)
-samples = np.linspace(0.001,0.999,N)
+samples = np.linspace(0.00001,0.99999,N)
 #samples = np.ones(N)*0.1
 
 def model_cdf_fn(x ,a, b):
@@ -63,8 +65,8 @@ result = optimize.newton(
     fprime = model_pdf_fn,
     disp = True,
 )
-plt.plot(result,'.')
-plt.show()
+#plt.plot(result,'.')
+#plt.show()
 end = time.time()
 print(end - start)
 """
@@ -77,25 +79,30 @@ def model_cdf_fn_t(x):
 
 #print(model_cdf_fn_t(np.ones(N)*10.00))
 #print(tf.convert_to_tensor(conditional_delay_model.mean(x=x)))
-"""
+
 start = time.time()
 result = tfp.math.find_root_secant(
     objective_fn = model_cdf_fn_t,
     initial_position = tf.convert_to_tensor(conditional_delay_model.mean(x=x)),
+    value_tolerance = np.ones(N)*1e-7, #tf.convert_to_tensor(np.ones(N)*1e-7, dtype='float64'),
+    position_tolerance = np.ones(N)*1e-3, #tf.convert_to_tensor(np.ones(N)*1e-2, dtype='float64'),
 )
 end = time.time()
 print(end - start)
 plt.plot(result[0],'.')
-plt.show()
+plt.savefig('foo.png')
+
 """
 start = time.time()
 result = tfp.math.find_root_chandrupatla(
     objective_fn = model_cdf_fn_t,
     low = tf.convert_to_tensor(np.ones(N)*0.0001, dtype='float64'),
-    high = tf.convert_to_tensor(np.ones(N)*100, dtype='float64'),
+    high = tf.convert_to_tensor(np.ones(N)*1000, dtype='float64'),
+    value_tolerance = tf.convert_to_tensor(np.ones(N)*1e-7, dtype='float64'),
 )
 end = time.time()
 print(end - start)
 #print(result[0])
-plt.plot(result[0],'.')
-plt.show()
+#plt.plot(result[0],'.')
+#plt.show()
+"""

@@ -2,8 +2,11 @@ import numpy as np
 import seaborn as sns
 import matplotlib.pyplot as plt
 import pandas as pd
+
 import tensorflow_probability as tfp
 import tensorflow as tf
+tf.config.set_visible_devices([], 'GPU')
+
 import pyarrow as pa
 import pyarrow.parquet as pq
 import time
@@ -45,8 +48,8 @@ N = 100000 # 489 seconds for 100k samples, 17 seconds for 10k samples
 X = { 'queue_length1': np.zeros(N), 'queue_length2': np.zeros(N), 'queue_length3' : np.zeros(N) }
 
 # load the conditional trained model
-conditional_delay_model = ConditionalGammaMixtureEVM(
-    h5_addr = "gmevm_conditional_model.h5",
+conditional_delay_model = ConditionalGaussianMM( #ConditionalGammaMixtureEVM, ConditionalGaussianMM
+    h5_addr = "gmm_conditional_model.h5", #gmevm_conditional_model.h5, gmm_conditional_model.h5
     dtype = dtype,
 )
 start = time.time()

@@ -305,9 +305,6 @@ class ConditionalGammaMixtureEVM(ConditionalDensityEstimator):
         mixture_gamma_weights_t = tf.convert_to_tensor(result_dict['mixture_gamma_weights'], dtype=self.dtype)
         mixture_gamma_shapes_t = tf.convert_to_tensor(result_dict['mixture_gamma_shapes'], dtype=self.dtype)
         mixture_gamma_rates_t = tf.convert_to_tensor(result_dict['mixture_gamma_rates'], dtype=self.dtype)
-        #tail_param_t = tf.convert_to_tensor(result_dict['tail_parameter'], dtype=self.dtype)
-        #tail_threshold_t = tf.convert_to_tensor(result_dict['tail_threshold'], dtype=self.dtype)
-        #tail_scale_t = tf.convert_to_tensor(result_dict['tail_scale'], dtype=self.dtype)
 
         # create gamma mixture
         cat = tfd.Categorical(probs=mixture_gamma_weights_t,dtype=self.dtype)
@@ -315,37 +312,34 @@ class ConditionalGammaMixtureEVM(ConditionalDensityEstimator):
                         in zip(tf.unstack(mixture_gamma_shapes_t, axis=1), tf.unstack(mixture_gamma_rates_t, axis=1))]
         mixture = tfd.Mixture(cat=cat, components=components)
 
-        result = mixture.mean()
-        return result.numpy()
+        return mixture.mean()
 
     def quantile(self,
         x, # dict as below
-        samples, # numbers between 0.0 and 1.0
+        samples, # numbers between 0.0 and 1.0 (numpy array)
+        value_tolerance = 1e-7,
+        position_tolerance = 1e-3,
     ):
         """
-            vectorized numerical quantile finder using Scipy.optimize.newton
-            https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.newton.html
+            vectorized numerical quantile finder
         """
         # x = { 'queue_length1': np.zeros(1000), 'queue_length2': np.zeros(1000), 'queue_length3' : np.zeros(1000) }
         x_list = np.array([np.array([*items]) for items in zip(*x.values())])
 
-        def model_cdf_fn(x ,a, b):
+        def model_cdf_fn_t(x):
+            a = x_list
+            b = samples
             pdf, logpdf, cdf = self.prob_batch(x=a,y=x)
-            return cdf - b
+            return tf.convert_to_tensor(cdf - b, dtype=self.dtype)
 
-        def model_pdf_fn(x, a, b=None):
-            pdf, logpdf, cdf = self.prob_batch(x=a,y=x)
-            return pdf
-
-        result = optimize.newton(
-            func = model_cdf_fn, 
-            x0 = self.bulk_mean(x=x), # we feed the mean of the mixture as the initial guess
-            args=(x_list,samples),
-            fprime = model_pdf_fn,
-            disp = True,
+        result = tfp.math.find_root_secant(
+            objective_fn = model_cdf_fn_t,
+            initial_position = self.bulk_mean(x),
+            value_tolerance = tf.convert_to_tensor(np.ones(len(samples))*value_tolerance, dtype=self.dtype),
+            position_tolerance = tf.convert_to_tensor(np.ones(len(samples))*position_tolerance, dtype=self.dtype),
         )
 
-        return result
+        return np.array(result[0])
     
     def sample_n(self, 
         x,
