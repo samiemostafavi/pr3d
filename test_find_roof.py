@@ -84,13 +84,13 @@ start = time.time()
 result = tfp.math.find_root_secant(
     objective_fn = model_cdf_fn_t,
     initial_position = tf.convert_to_tensor(conditional_delay_model.mean(x=x)),
-    value_tolerance = tf.convert_to_tensor(np.ones(N)*1e-7, dtype='float64'),
-    position_tolerance = tf.convert_to_tensor(np.ones(N)*1e-2, dtype='float64'),
+    value_tolerance = np.ones(N)*1e-7, #tf.convert_to_tensor(np.ones(N)*1e-7, dtype='float64'),
+    position_tolerance = np.ones(N)*1e-3, #tf.convert_to_tensor(np.ones(N)*1e-2, dtype='float64'),
 )
 end = time.time()
 print(end - start)
 plt.plot(result[0],'.')
-plt.show()
+plt.savefig('foo.png')
 
 """
 start = time.time()
