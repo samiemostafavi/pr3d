@@ -1,0 +1,11 @@
+FROM samiemostafavi/pr3d:base
+ARG DEBIAN_FRONTEND=noninteractive
+ENV TZ="Europe/Stockholm"
+RUN apt-get update -y #  && apt-get upgrade -y 
+RUN pip install --upgrade pip
+
+COPY . /pr3d
+WORKDIR /pr3d
+RUN pip install -Ur requirements.txt
+
+#ENTRYPOINT ["python", "test_find_root.py"]

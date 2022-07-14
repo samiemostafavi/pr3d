@@ -1,0 +1,5 @@
+.git/
+venv/
+*.h5
+*.png
+*.parquet

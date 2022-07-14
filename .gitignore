@@ -141,3 +141,4 @@ dmypy.json
 *.h5
 *.png
 *.parquet
+*.tgz
