@@ -23,8 +23,6 @@ samples = conditional_delay_model.sample_n(x=x)
 end = time.time()
 print(end-start)
 
-
-
 fig, ax = plt.subplots()
 sns.histplot(
     samples,
@@ -34,8 +32,6 @@ sns.histplot(
 ).set(title="count={0}".format(len(samples)))
 ax.title.set_size(10)
 plt.savefig('foo1.png')
-
-exit(0)
 
 # load the conditional trained model
 conditional_delay_model = ConditionalGaussianMM(
@@ -57,3 +53,5 @@ sns.histplot(
 ).set(title="count={0}".format(len(samples)))
 ax.title.set_size(10)
 plt.savefig('foo2.png')
+
+exit(0)
