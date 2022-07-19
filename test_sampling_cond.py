@@ -45,6 +45,7 @@ ax.legend()
 
 plt.savefig('foo3.png')
 
+exit(0)
 
 # load the conditional trained model
 conditional_delay_model = ConditionalGaussianMM(
