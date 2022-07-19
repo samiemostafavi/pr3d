@@ -343,16 +343,74 @@ class ConditionalGammaMixtureEVM(ConditionalDensityEstimator):
     
     def sample_n(self, 
         x,
-        rng : np.random.Generator = np.random.default_rng(seed=0),
+        seed : int = 0,
     ):
         """
-        https://github.com/tensorflow/probability/issues/659
-        there is no closed form for the quantile of the Gaussian mixture
-        In the last answer of these question, someone has mentioned that 
-        Scipy can handle vectorized root finding:
-        https://stackoverflow.com/questions/13088115/finding-the-roots-of-a-large-number-of-functions-with-one-variable
-        This is what we use for quantile function.
+        https://stats.stackexchange.com/questions/243392/generate-sample-data-from-gaussian-mixture-model
         """
         # x = { 'queue_length1': np.zeros(1000), 'queue_length2': np.zeros(1000), 'queue_length3' : np.zeros(1000) }
-        samples = rng.uniform(0.0,1.0,size = len(list(x.values())[0]))
-        return self.quantile(x=x,samples=samples)
+        batch_size = len(list(x.values())[0])
+
+        prediction_res = self._params_model.predict(
+            x,
+        )
+        result_dict = {}
+        for idx,param in enumerate(self.params_config):
+            result_dict[param] = np.squeeze(prediction_res[idx])
+
+        weights = result_dict['mixture_gamma_weights']
+        weights_t = tf.convert_to_tensor(result_dict['mixture_gamma_weights'],dtype=self.dtype)
+        shapes_t = tf.convert_to_tensor(result_dict['mixture_gamma_shapes'],dtype=self.dtype)
+        rates_t = tf.convert_to_tensor(result_dict['mixture_gamma_rates'],dtype=self.dtype)
+        tail_param_t = tf.convert_to_tensor(result_dict['tail_parameter'], dtype=self.dtype)
+        tail_threshold_t = tf.convert_to_tensor(result_dict['tail_threshold'], dtype=self.dtype)
+        tail_scale_t = tf.convert_to_tensor(result_dict['tail_scale'], dtype=self.dtype)
+
+        # create gamma mixture to find tail_threshold_prob
+        cat = tfd.Categorical(probs=weights_t,dtype=self.dtype)
+        components = [tfd.Gamma(concentration=shape, rate=rate) for shape, rate
+                        in zip(tf.unstack(shapes_t, axis=1), tf.unstack(rates_t, axis=1))]
+        mixture = tfd.Mixture(cat=cat, components=components)
+        tail_threshold_prob_t = tf.constant(1.00,dtype=self.dtype)-mixture.cdf(tf.squeeze(tail_threshold_t))
+
+        # random number in (0,1)
+        y_samples = np.random.uniform(
+            size = batch_size,
+        )
+
+        # select a random component
+        cat_samples = tf.random.categorical(
+            logits=tf.math.log(weights), 
+            num_samples = 1,
+            seed = seed,
+        )
+        cat_samples = tf.squeeze(cat_samples)
+        shapes_t = tf.gather(shapes_t, cat_samples, axis=1, batch_dims=1)
+        rates_t = tf.gather(rates_t, cat_samples, axis=1, batch_dims=1)
+        components = tfd.Gamma(concentration=shapes_t, rate=rates_t)
+        # generate bulk samples
+        bulk_samples_t = components.quantile(y_samples)
+
+        # make GPD distribtion and generate tail samples
+        gpd_samples_t = gpd_quantile(
+            tail_threshold_t,
+            tail_param_t,
+            tail_scale_t,
+            tail_threshold_prob_t,
+            tf.convert_to_tensor(y_samples),
+            self.dtype,
+        )
+
+        # multiplex samples
+        bool_split_t = tf.greater(y_samples, tail_threshold_prob_t)
+        bulk_multiplexer = bool_split_t
+        gpd_multiplexer = tf.logical_not(bool_split_t)
+        gpd_multiplexer = tf.cast(gpd_multiplexer, dtype=self.dtype) # convert it to float for multiplication
+        bulk_multiplexer = tf.cast(bulk_multiplexer, dtype=self.dtype) # convert it to float for multiplication
+        multiplexed_gpd_samples = tf.multiply(gpd_samples_t,gpd_multiplexer)
+        multiplexed_bulk_samples = tf.multiply(bulk_samples_t,bulk_multiplexer)
+
+        return tf.add(
+            multiplexed_gpd_samples,
+            multiplexed_bulk_samples,
+        ).numpy()
