@@ -1,8 +1,9 @@
 import numpy as np
 from scipy import optimize
 import tensorflow as tf
-tf.config.set_visible_devices([], 'GPU')
+#tf.config.set_visible_devices([], 'GPU')
 
+import seaborn as sns
 from pr3d.de import ConditionalGaussianMM
 import matplotlib.pyplot as plt
 import tensorflow_probability as tfp
@@ -26,11 +27,11 @@ print(optimize.newton(F, np.zeros(N), args=(a, b)))
 
 # load the conditional trained model
 conditional_delay_model = ConditionalGaussianMM(
-    h5_addr = "gmm_conditional_model.h5",
+    h5_addr = "test/gmm_conditional_model.h5",
     dtype = 'float64',
 )
 
-N = 100000
+N = 10000
 x = { 'queue_length1': np.zeros(N), 'queue_length2': np.zeros(N), 'queue_length3' : np.zeros(N) }
 x_list = np.array([np.array([*items]) for items in zip(*x.values())])
 
@@ -38,6 +39,7 @@ samples = np.random.uniform(low=0.0,high=1.0,size=N)
 samples = np.linspace(0.00001,0.99999,N)
 #samples = np.ones(N)*0.1
 
+"""
 def model_cdf_fn(x ,a, b):
     #return conditional_delay_model.cdf(x=a, y=x)-b
     pdf, logpdf, cdf = conditional_delay_model.prob_batch(x=a,y=x)
@@ -47,7 +49,7 @@ def model_pdf_fn(x, a, b=None):
     pdf, logpdf, cdf = conditional_delay_model.prob_batch(x=a,y=x)
     return pdf
 
-"""
+
 y = np.linspace(0.0,100.0,N)
 result = model_cdf_fn(x=y,a=x_list,b=samples)
 plt.plot(y,result,'.')
@@ -69,7 +71,7 @@ result = optimize.newton(
 #plt.show()
 end = time.time()
 print(end - start)
-"""
+
 def model_cdf_fn_t(x):
     a = x_list
     b = samples
@@ -90,6 +92,41 @@ result = tfp.math.find_root_secant(
 end = time.time()
 print(end - start)
 plt.plot(result[0],'.')
+plt.savefig('foo.png')
+"""
+
+def model_log_pdf(x):
+    a = x_list
+    #return conditional_delay_model.cdf(x=a, y=x)-b
+    pdf, logpdf, cdf = conditional_delay_model.prob_batch(x=a,y=x)
+    return tf.convert_to_tensor(logpdf, dtype='float64')
+
+
+start = time.time()
+dtype = np.float64
+samples = tfp.mcmc.sample_chain(
+    num_results=1,
+    current_state=conditional_delay_model.mean(x=x),
+    kernel=tfp.mcmc.SliceSampler(
+        model_log_pdf,
+        step_size=1.0,
+        max_doublings=10,
+    ),
+    num_burnin_steps=10,
+    trace_fn=None,
+    seed=1234,
+)
+end = time.time()
+print(end - start)
+
+fig, ax = plt.subplots()
+sns.histplot(
+    samples[0],
+    kde=True,
+    ax = ax,
+    stat="density",
+).set(title="count={0}".format(len(samples[0])))
+ax.title.set_size(10)
 plt.savefig('foo.png')
 
 """

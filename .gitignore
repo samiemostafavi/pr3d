@@ -142,3 +142,6 @@ dmypy.json
 *.png
 *.parquet
 *.tgz
+*.tar.xz
+
+!test

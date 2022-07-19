@@ -3,3 +3,4 @@ venv/
 *.h5
 *.png
 *.parquet
+!test

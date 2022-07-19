@@ -235,16 +235,45 @@ class ConditionalGaussianMM(ConditionalDensityEstimator):
 
     def sample_n(self, 
         x,
-        rng : np.random.Generator = np.random.default_rng(seed=0),
+        seed: int = 0,
     ):
         """
-        https://github.com/tensorflow/probability/issues/659
-        there is no closed form for the quantile of the Gaussian mixture
-        In the last answer of these question, someone has mentioned that 
-        Scipy can handle vectorized root finding:
-        https://stackoverflow.com/questions/13088115/finding-the-roots-of-a-large-number-of-functions-with-one-variable
-        This is what we use for quantile function.
+        https://stats.stackexchange.com/questions/243392/generate-sample-data-from-gaussian-mixture-model
         """
         # x = { 'queue_length1': np.zeros(1000), 'queue_length2': np.zeros(1000), 'queue_length3' : np.zeros(1000) }
-        samples = rng.uniform(0.0,1.0,size = len(list(x.values())[0]))
-        return self.quantile(x=x,samples=samples)
+        batch_size = len(list(x.values())[0])
+
+        prediction_res = self._params_model.predict(
+            x,
+        )
+        result_dict = {}
+        for idx,param in enumerate(self.params_config):
+            result_dict[param] = np.squeeze(prediction_res[idx])
+
+        weights = result_dict['mixture_weights']
+        weights_t = tf.convert_to_tensor(result_dict['mixture_weights'],dtype=self.dtype)
+        locs_t = tf.convert_to_tensor(result_dict['mixture_locations'],dtype=self.dtype)
+        scales_t = tf.convert_to_tensor(result_dict['mixture_scales'],dtype=self.dtype)
+
+        # select from components
+        cat_samples = tf.random.categorical(
+            logits=tf.math.log(weights), 
+            num_samples = 1,
+            seed = seed,
+        )
+        cat_samples = tf.squeeze(cat_samples)
+
+        locs_t = tf.gather(locs_t, cat_samples, axis=1, batch_dims=1)
+        scales_t = tf.gather(scales_t, cat_samples, axis=1, batch_dims=1)
+
+        components = tfd.Normal(loc=locs_t, scale=scales_t)
+
+        # random number in (0,1)
+        y_samples = np.random.uniform(
+            size = batch_size,
+        )
+
+        result = components.quantile(y_samples)
+        return result.numpy()
+
+        
