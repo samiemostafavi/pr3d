@@ -12,6 +12,6 @@ setup(
   author="Seyed Samie Mostafavi",
   author_email="samiemostafavi@gmail.com",
   license="MIT",
-  packages=find_packages(include=['pr3d'], exclude=['docker','test','utils']),
+  packages=find_packages(include=['pr3d','pr3d.de','pr3d.common'], exclude=['docker','test','utils']),
   zip_safe=False
 )
