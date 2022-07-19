@@ -358,6 +358,8 @@ class ConditionalGammaMixtureEVM(ConditionalDensityEstimator):
         for idx,param in enumerate(self.params_config):
             result_dict[param] = np.squeeze(prediction_res[idx])
 
+        #print(result_dict)
+
         weights = result_dict['mixture_gamma_weights']
         weights_t = tf.convert_to_tensor(result_dict['mixture_gamma_weights'],dtype=self.dtype)
         shapes_t = tf.convert_to_tensor(result_dict['mixture_gamma_shapes'],dtype=self.dtype)
@@ -371,14 +373,14 @@ class ConditionalGammaMixtureEVM(ConditionalDensityEstimator):
         components = [tfd.Gamma(concentration=shape, rate=rate) for shape, rate
                         in zip(tf.unstack(shapes_t, axis=1), tf.unstack(rates_t, axis=1))]
         mixture = tfd.Mixture(cat=cat, components=components)
-        tail_threshold_prob_t = tf.constant(1.00,dtype=self.dtype)-mixture.cdf(tf.squeeze(tail_threshold_t))
+        tail_threshold_prob_t = mixture.cdf(tf.squeeze(tail_threshold_t))
 
         # random number in (0,1)
         y_samples = np.random.uniform(
             size = batch_size,
         )
 
-        # select a random component
+        # select random components
         cat_samples = tf.random.categorical(
             logits=tf.math.log(weights), 
             num_samples = 1,
@@ -390,27 +392,24 @@ class ConditionalGammaMixtureEVM(ConditionalDensityEstimator):
         components = tfd.Gamma(concentration=shapes_t, rate=rates_t)
         # generate bulk samples
         bulk_samples_t = components.quantile(y_samples)
+        bool_split_t = tf.greater(bulk_samples_t, tail_threshold_t)
+        bulk_multiplexer = tf.logical_not(bool_split_t)
+        bulk_indices = tf.where(bulk_multiplexer)
+        bulk_samples_t = tf.gather(bulk_samples_t,bulk_indices)
+        #print(bulk_samples_t)
 
         # make GPD distribtion and generate tail samples
         gpd_samples_t = gpd_quantile(
-            tail_threshold_t,
-            tail_param_t,
-            tail_scale_t,
-            tail_threshold_prob_t,
-            tf.convert_to_tensor(y_samples),
-            self.dtype,
+            tail_threshold = tail_threshold_t,
+            tail_param = tail_param_t,
+            tail_scale = tail_scale_t,
+            norm_factor = tf.constant(1.00,dtype=self.dtype)-tail_threshold_prob_t,
+            random_input = tf.convert_to_tensor(y_samples),
+            dtype  = self.dtype,
         )
+        gpd_multiplexer = tf.greater(gpd_samples_t, tail_threshold_t)
+        gpd_indices = tf.where(gpd_multiplexer)
+        gpd_samples_t = tf.gather(gpd_samples_t,gpd_indices)
+        #print(gpd_samples_t)
 
-        # multiplex samples
-        bool_split_t = tf.greater(y_samples, tail_threshold_prob_t)
-        bulk_multiplexer = bool_split_t
-        gpd_multiplexer = tf.logical_not(bool_split_t)
-        gpd_multiplexer = tf.cast(gpd_multiplexer, dtype=self.dtype) # convert it to float for multiplication
-        bulk_multiplexer = tf.cast(bulk_multiplexer, dtype=self.dtype) # convert it to float for multiplication
-        multiplexed_gpd_samples = tf.multiply(gpd_samples_t,gpd_multiplexer)
-        multiplexed_bulk_samples = tf.multiply(bulk_samples_t,bulk_multiplexer)
-
-        return tf.add(
-            multiplexed_gpd_samples,
-            multiplexed_bulk_samples,
-        ).numpy()
+        return tf.squeeze(tf.concat([bulk_samples_t, gpd_samples_t], 0)).numpy()
