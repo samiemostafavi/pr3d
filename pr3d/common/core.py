@@ -357,6 +357,12 @@ class ConditionalDensityEstimator(DensityEstimator):
         workers=1,
         use_multiprocessing=False, 
     ):
+        # to resolve the weired issue when only sending one entry
+        single_entry = False
+        if len(y) == 1:
+            single_entry = True
+            x = np.append(x,[np.ones(len(self.x_dim),dtype=np.float64)],axis=0)
+            y = np.append(y,[1.00],axis=0)
 
         batch_input = [ tf.expand_dims(tf.convert_to_tensor(x[:,idx],dtype=self.dtype),axis=1) 
                 for idx in range(len(self.x_dim)) ]
@@ -376,7 +382,11 @@ class ConditionalDensityEstimator(DensityEstimator):
             workers=workers,
             use_multiprocessing=use_multiprocessing,
         )
-        return np.squeeze(pdf),np.squeeze(log_pdf),np.squeeze(ecdf)
+        
+        if single_entry:
+            return np.squeeze(pdf)[0],np.squeeze(log_pdf)[0],np.squeeze(ecdf)[0]
+        else:
+            return np.squeeze(pdf),np.squeeze(log_pdf),np.squeeze(ecdf)
 
     def sample_n(self, 
         x : npt.NDArray[np.float64],
