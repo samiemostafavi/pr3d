@@ -357,9 +357,9 @@ class ConditionalDensityEstimator(DensityEstimator):
         workers=1,
         use_multiprocessing=False, 
     ):
-        # to resolve the weired issue when only sending one entry
+        # to resolve the weired issue when the number of entries are 32*k+1
         single_entry = False
-        if len(y) == 1:
+        if len(y) % 32 == 1:
             single_entry = True
             x = np.append(x,[np.ones(len(self.x_dim),dtype=np.float64)],axis=0)
             y = np.append(y,[1.00],axis=0)
@@ -384,7 +384,7 @@ class ConditionalDensityEstimator(DensityEstimator):
         )
         
         if single_entry:
-            return np.squeeze(pdf)[0],np.squeeze(log_pdf)[0],np.squeeze(ecdf)[0]
+            return np.squeeze(pdf)[:-1],np.squeeze(log_pdf)[:-1],np.squeeze(ecdf)[:-1]
         else:
             return np.squeeze(pdf),np.squeeze(log_pdf),np.squeeze(ecdf)
 
