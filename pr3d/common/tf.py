@@ -1,3 +1,4 @@
+import numpy as np
 import tensorflow as tf
 import keras
 from keras import layers
@@ -18,6 +19,9 @@ def create_model_inputs(
         )
     return inputs
 
+def squeeze_generic(a, axes_to_keep):
+    out_s = [s for i,s in enumerate(a.shape) if i in axes_to_keep or s!=1]
+    return a.reshape(out_s)
 
 class MLP():
 
@@ -63,8 +67,19 @@ class MLP():
             # find slice layer names
             slice_names = []
             int_node = self._output_layer._inbound_nodes[0]
-            for idx, layer in enumerate(int_node.inbound_layers):
-                slice_names.append(layer.name)
+            
+            # figure out inbound_layers size
+            tmp = np.array([int_node.inbound_layers])
+            tmp = np.transpose(tmp)
+            tmp = squeeze_generic(tmp,[0])
+            if len(tmp) > 1:
+                # more than one input layer
+                for idx, layer in enumerate(int_node.inbound_layers):
+                    slice_names.append(layer.name)
+            else:
+                # only one input layer
+                slice_names.append(int_node.inbound_layers.name)
+
             # create output layer by concatenating slices
             self._output_slices = {}
             for slice_name in slice_names:
@@ -74,7 +89,10 @@ class MLP():
 
             # Using functional API of keras instead of sequential
             self._input_slices = create_model_inputs(feature_names)
-            self._input_layer = keras.layers.concatenate(list(self._input_slices.values()),name='input')
+            if len(feature_names) == 1:
+                self._input_layer = layers.Dense(1,activation=None,use_bias=False,name='input')(list(self._input_slices.values())[0])
+            else:
+                self._input_layer = keras.layers.concatenate(list(self._input_slices.values()),name='input')
 
             #features = layers.BatchNormalization()(features)
 
