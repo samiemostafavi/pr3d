@@ -54,20 +54,7 @@ class MLP():
             # find slice layer names
             slice_names = []
             int_node = self._input_layer._inbound_nodes[0]
-            for idx, layer in enumerate(int_node.inbound_layers):
-                slice_names.append(layer.name)
-            # create input slices by concatenating slices
-            self._input_slices = {}
-            for slice_name in slice_names:
-                self._input_slices[slice_name] = self._model.get_layer(slice_name).input
 
-
-            # find the output layer and slices
-            self._output_layer = self._model.get_layer('output')
-            # find slice layer names
-            slice_names = []
-            int_node = self._output_layer._inbound_nodes[0]
-            
             # figure out inbound_layers size
             tmp = np.array([int_node.inbound_layers])
             tmp = np.transpose(tmp)
@@ -80,6 +67,19 @@ class MLP():
                 # only one input layer
                 slice_names.append(int_node.inbound_layers.name)
 
+            # create input slices by concatenating slices
+            self._input_slices = {}
+            for slice_name in slice_names:
+                self._input_slices[slice_name] = self._model.get_layer(slice_name).input
+
+
+            # find the output layer and slices
+            self._output_layer = self._model.get_layer('output')
+            # find slice layer names
+            slice_names = []
+            int_node = self._output_layer._inbound_nodes[0]
+            for idx, layer in enumerate(int_node.inbound_layers):
+                slice_names.append(layer.name)
             # create output layer by concatenating slices
             self._output_slices = {}
             for slice_name in slice_names:
