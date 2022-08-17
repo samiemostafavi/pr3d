@@ -1,11 +1,12 @@
 import tensorflow as tf
 import keras
 import tensorflow_probability as tfp
-tfd = tfp.distributions
 import h5py
 
 from pr3d.common.evm import *
 from pr3d.common.core import NonConditionalDensityEstimator
+
+tfd = tfp.distributions
 
 # in order to use tfd.Gamma.quantile
 #tf.compat.v1.disable_eager_execution()

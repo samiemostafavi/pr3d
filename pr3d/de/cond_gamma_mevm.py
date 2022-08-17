@@ -2,11 +2,8 @@ import tensorflow as tf
 import keras
 import numpy as np
 import numpy.typing as npt
-from scipy import optimize
 import tensorflow_probability as tfp
-import tensorflow_addons as tfa
 import h5py
-from typing import Tuple
 import numpy.typing as npt
 import numpy as np
 
