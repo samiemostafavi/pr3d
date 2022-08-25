@@ -1,19 +1,20 @@
+import matplotlib.pyplot as plt
 import numpy as np
 import pyarrow as pa
+
+# import pyarrow.compute as pc
 import pyarrow.parquet as pq
-import pyarrow.compute as pc
-import matplotlib.pyplot as plt
 import seaborn as sns
 from tensorflow import keras
 
 from pr3d.de import ConditionalGammaMixtureEVM
 from utils import parquet_tf_pipeline_2
 
-dtype = 'float64' # 'float32' or 'float16'
+dtype = "float64"  # 'float32' or 'float16'
 
-dataset_size = 8192 # = 1024*8, max 8995
-train_size = 7168 #int(dataset_size * 0.85)
-batch_size = 1024 #256
+dataset_size = 8192  # = 1024*8, max 8995
+train_size = 7168  # int(dataset_size * 0.85)
+batch_size = 1024  # 256
 
 feature_names = [
     "queue_length1",
@@ -24,96 +25,98 @@ feature_names = [
 label_name = "end2end_delay"
 
 train_dataset, test_dataset = parquet_tf_pipeline_2(
-    file_addr = './dataset.parquet',
-    feature_names = feature_names,
-    label_name = label_name,
-    dataset_size = dataset_size,
-    train_size = train_size,
-    batch_size = batch_size,
+    file_addr="./dataset.parquet",
+    feature_names=feature_names,
+    label_name=label_name,
+    dataset_size=dataset_size,
+    train_size=train_size,
+    batch_size=batch_size,
 )
 
-#print(train_dataset)
-#for ds in train_dataset:
+# print(train_dataset)
+# for ds in train_dataset:
 #    print(ds)
 
-#print(test_dataset)
-#for ds in test_dataset:
+# print(test_dataset)
+# for ds in test_dataset:
 #    print(ds)
 
 # initiate the non conditional predictor
 model = ConditionalGammaMixtureEVM(
-    centers = 4,
-    bayesian = False,
-    #batch_size = 1024,
-    x_dim = feature_names,
-    hidden_sizes = (32,32,32), #(20, 50, 20) for bayesian, (16,16) for non-bayesian
-    hidden_activation = 'tanh', #'sigmoid'
-    dtype = dtype,
+    centers=4,
+    bayesian=False,
+    # batch_size = 1024,
+    x_dim=feature_names,
+    hidden_sizes=(32, 32, 32),  # (20, 50, 20) for bayesian, (16,16) for non-bayesian
+    hidden_activation="tanh",  # 'sigmoid'
+    dtype=dtype,
 )
 
 model.fit_pipeline(
     train_dataset,
     test_dataset,
-    optimizer = keras.optimizers.Adam(learning_rate=0.01),
-    batch_size = 1024,
-    epochs = 200, #1000
+    optimizer=keras.optimizers.Adam(learning_rate=0.01),
+    batch_size=1024,
+    epochs=200,  # 1000
 )
 
-condition = [0,0,0]
+condition = [0, 0, 0]
 
 print(f"Parameters of {condition}: {model.get_parameters(x=condition)}")
 
-#model.core_model.model.summary()
+# model.core_model.model.summary()
 
 model.save("gmevm_conditional_model.h5")
 del model
 
 
-loaded_model = ConditionalGammaMixtureEVM(
-    h5_addr = "gmevm_conditional_model.h5"
-)
+loaded_model = ConditionalGammaMixtureEVM(h5_addr="gmevm_conditional_model.h5")
 
-print(f"Model loaded, bayesian: {loaded_model.bayesian}, x_dim: {loaded_model.x_dim}, hidden_sizes: {loaded_model.hidden_sizes}")
+print(
+    f"Model loaded, bayesian: {loaded_model.bayesian}, x_dim: {loaded_model.x_dim}, hidden_sizes: {loaded_model.hidden_sizes}"
+)
 print(f"Parameters: {loaded_model.get_parameters(x=condition)}")
 
 
 # load dataset first
-file_addresses = ['dataset.parquet']
+file_addresses = ["dataset.parquet"]
 table = pa.concat_tables(
     pq.read_table(
-        file_address,columns=None,
-    ) for file_address in file_addresses
+        file_address,
+        columns=None,
+    )
+    for file_address in file_addresses
 )
 df = table.to_pandas()
 print(df)
 
 conditional_df = df[
-    (df.queue_length1==condition[0]) & 
-    (df.queue_length2==condition[1]) & 
-    (df.queue_length3==condition[2])
+    (df.queue_length1 == condition[0])
+    & (df.queue_length2 == condition[1])
+    & (df.queue_length3 == condition[2])
 ]
 fig, ax = plt.subplots()
 sns.histplot(
-    conditional_df['end2end_delay'],
+    conditional_df["end2end_delay"],
     kde=True,
-    ax = ax,
+    ax=ax,
     stat="density",
-).set(title="x={0}, count={1}".format(condition,len(conditional_df)))
+).set(title="x={0}, count={1}".format(condition, len(conditional_df)))
 ax.title.set_size(10)
 
 # then, plot predictions
 y0, y1 = ax.get_xlim()  # extract the y endpoints
 y_lin = np.linspace(y0, y1, 100, dtype=dtype)
-x_lin = np.tile(condition, (len(y_lin),1))
+x_lin = np.tile(condition, (len(y_lin), 1))
 if loaded_model.bayesian:
     for _ in range(100):
-        pdf,log_pdf,ecdf = loaded_model.prob_batch(x = x_lin, y = y_lin[:,None])
-        ax.plot(y_lin, pdf, color='red', alpha=0.1, label='prediction')
+        pdf, log_pdf, ecdf = loaded_model.prob_batch(x=x_lin, y=y_lin[:, None])
+        ax.plot(y_lin, pdf, color="red", alpha=0.1, label="prediction")
 else:
-    pdf,log_pdf,ecdf = loaded_model.prob_batch(x = x_lin, y = y_lin[:,None])
-    ax.plot(y_lin, pdf, color='red', lw=2, label='prediction')
+    pdf, log_pdf, ecdf = loaded_model.prob_batch(x=x_lin, y=y_lin[:, None])
+    ax.plot(y_lin, pdf, color="red", lw=2, label="prediction")
 
-ax.legend(['Data', 'Prediction'])
+ax.legend(["Data", "Prediction"])
 
 fig.tight_layout()
-plt.savefig('gmevm_conditional_model.png')
+plt.savefig("gmevm_conditional_model.png")

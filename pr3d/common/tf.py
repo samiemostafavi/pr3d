@@ -1,44 +1,42 @@
+import keras
 import numpy as np
 import tensorflow as tf
-import keras
 from keras import layers
 
 from pr3d.common.bayesian import SavableDenseFlipout
 
 
-def create_model_inputs(
-    feature_names,
-    dtype=tf.float32
-):
+def create_model_inputs(feature_names, dtype=tf.float32):
     inputs = {}
     for feature_name in feature_names:
         inputs[feature_name] = layers.Input(
-            name=feature_name, 
-            shape=(1,), 
+            name=feature_name,
+            shape=(1,),
             dtype=dtype,
         )
     return inputs
 
+
 def squeeze_generic(a, axes_to_keep):
-    out_s = [s for i,s in enumerate(a.shape) if i in axes_to_keep or s!=1]
+    out_s = [s for i, s in enumerate(a.shape) if i in axes_to_keep or s != 1]
     return a.reshape(out_s)
 
-class MLP():
 
+class MLP:
     def __init__(
         self,
         bayesian,
         batch_size,
-        feature_names : list, #list(str)
-        name : str = 'mlp',
-        output_layer_config : dict = None,
-        dtype = tf.dtypes.float64,
-        hidden_sizes = (16,16), 
-        hidden_activation = 'tanh',
-        kernel_initializer = 'glorot_uniform',
-        bias_initializer = 'glorot_uniform', #'zeros'
+        feature_names: list,  # list(str)
+        name: str = "mlp",
+        output_layer_config: dict = None,
+        dtype=tf.dtypes.float64,
+        hidden_sizes=(16, 16),
+        hidden_activation="tanh",
+        kernel_initializer="glorot_uniform",
+        bias_initializer="glorot_uniform",  # 'zeros'
         dropout_ph=None,
-        loaded_mlp_model : keras.Model = None,
+        loaded_mlp_model: keras.Model = None,
     ):
         """
         :param dropout_ph: None if no dropout should be used. Else a scalar placeholder that determines the prob of dropping a node.
@@ -50,7 +48,7 @@ class MLP():
             self._model = loaded_mlp_model
 
             # find the input layer and slices
-            self._input_layer = self._model.get_layer('input')
+            self._input_layer = self._model.get_layer("input")
             # find slice layer names
             slice_names = []
             int_node = self._input_layer._inbound_nodes[0]
@@ -58,7 +56,7 @@ class MLP():
             # figure out inbound_layers size
             tmp = np.array([int_node.inbound_layers])
             tmp = np.transpose(tmp)
-            tmp = squeeze_generic(tmp,[0])
+            tmp = squeeze_generic(tmp, [0])
             if len(tmp) > 1:
                 # more than one input layer
                 for idx, layer in enumerate(int_node.inbound_layers):
@@ -72,9 +70,8 @@ class MLP():
             for slice_name in slice_names:
                 self._input_slices[slice_name] = self._model.get_layer(slice_name).input
 
-
             # find the output layer and slices
-            self._output_layer = self._model.get_layer('output')
+            self._output_layer = self._model.get_layer("output")
             # find slice layer names
             slice_names = []
             int_node = self._output_layer._inbound_nodes[0]
@@ -83,18 +80,24 @@ class MLP():
             # create output layer by concatenating slices
             self._output_slices = {}
             for slice_name in slice_names:
-                self._output_slices[slice_name] = self._model.get_layer(slice_name).output
+                self._output_slices[slice_name] = self._model.get_layer(
+                    slice_name
+                ).output
 
         else:
 
             # Using functional API of keras instead of sequential
             self._input_slices = create_model_inputs(feature_names)
             if len(feature_names) == 1:
-                self._input_layer = layers.Dense(1,activation=None,use_bias=False,name='input')(list(self._input_slices.values())[0])
+                self._input_layer = layers.Dense(
+                    1, activation=None, use_bias=False, name="input"
+                )(list(self._input_slices.values())[0])
             else:
-                self._input_layer = keras.layers.concatenate(list(self._input_slices.values()),name='input')
+                self._input_layer = keras.layers.concatenate(
+                    list(self._input_slices.values()), name="input"
+                )
 
-            #features = layers.BatchNormalization()(features)
+            # features = layers.BatchNormalization()(features)
 
             for idx, hidden_size in enumerate(hidden_sizes):
                 if idx == 0:
@@ -134,16 +137,16 @@ class MLP():
                 if bayesian:
                     slice_dense = SavableDenseFlipout(
                         name=slice_name,
-                        units=output_layer_config[slice_name]['slice_size'],
-                        activation=output_layer_config[slice_name]['slice_activation'],
+                        units=output_layer_config[slice_name]["slice_size"],
+                        activation=output_layer_config[slice_name]["slice_activation"],
                         batch_size=batch_size,
                         dtype=dtype,
                     )
                 else:
                     slice_dense = layers.Dense(
                         name=slice_name,
-                        units=output_layer_config[slice_name]['slice_size'],
-                        activation=output_layer_config[slice_name]['slice_activation'],
+                        units=output_layer_config[slice_name]["slice_size"],
+                        activation=output_layer_config[slice_name]["slice_activation"],
                         kernel_initializer=kernel_initializer,
                         bias_initializer=bias_initializer,
                         dtype=dtype,
@@ -152,12 +155,14 @@ class MLP():
                 slices.append(self._output_slices[slice_name])
 
             # connect output layer
-            self._output_layer = layers.Concatenate(name='output')(slices)
+            self._output_layer = layers.Concatenate(name="output")(slices)
             # print(self._output_layer)
 
             # create model
-            self._model = keras.Model(inputs=self._input_slices,outputs=self._output_layer,name=name)
-            #self._model.summary()
+            self._model = keras.Model(
+                inputs=self._input_slices, outputs=self._output_layer, name=name
+            )
+            # self._model.summary()
 
     @property
     def input_layer(self):
@@ -177,18 +182,17 @@ class MLP():
 
 
 # Single Layer Perceptron
-class SLP():
-
+class SLP:
     def __init__(
         self,
         bayesian,
         batch_size,
-        name : str = 'slp',
-        layer_config : dict = None,
-        dtype = tf.dtypes.float64,
-        kernel_initializer = 'glorot_uniform',
-        bias_initializer = 'glorot_uniform', #'zeros' VERY IMPORTANT! Otherwise all components would be the same
-        loaded_slp_model : keras.Model = None,
+        name: str = "slp",
+        layer_config: dict = None,
+        dtype=tf.dtypes.float64,
+        kernel_initializer="glorot_uniform",
+        bias_initializer="glorot_uniform",  # 'zeros' VERY IMPORTANT! Otherwise all components would be the same
+        loaded_slp_model: keras.Model = None,
     ):
         """
         Remember to set placeholder to Zero during test / eval
@@ -200,7 +204,7 @@ class SLP():
 
             # find the input and output layers
             self._input_layer = self._model.input
-            self._output_layer = self._model.get_layer('output')
+            self._output_layer = self._model.get_layer("output")
 
             # find slice layer names
             slice_names = []
@@ -211,7 +215,9 @@ class SLP():
             # create output layer by concatenating slices
             self._output_slices = {}
             for slice_name in slice_names:
-                self._output_slices[slice_name] = self._model.get_layer(slice_name).output
+                self._output_slices[slice_name] = self._model.get_layer(
+                    slice_name
+                ).output
 
         else:
 
@@ -219,10 +225,10 @@ class SLP():
 
             # This is just a dummy input
             self._input_layer = keras.Input(
-                    name = "input",
-                    shape=(1),
-                    batch_size=batch_size,
-                    dtype=dtype,
+                name="input",
+                shape=(1),
+                batch_size=batch_size,
+                dtype=dtype,
             )
 
             # create the single layer by concatenating slices
@@ -232,16 +238,16 @@ class SLP():
                 if bayesian:
                     slice_dense = SavableDenseFlipout(
                         name=slice_name,
-                        units=layer_config[slice_name]['slice_size'],
-                        activation=layer_config[slice_name]['slice_activation'],
+                        units=layer_config[slice_name]["slice_size"],
+                        activation=layer_config[slice_name]["slice_activation"],
                         batch_size=batch_size,
                         dtype=dtype,
                     )
                 else:
                     slice_dense = layers.Dense(
                         name=slice_name,
-                        units=layer_config[slice_name]['slice_size'],
-                        activation=layer_config[slice_name]['slice_activation'],
+                        units=layer_config[slice_name]["slice_size"],
+                        activation=layer_config[slice_name]["slice_activation"],
                         kernel_initializer=kernel_initializer,
                         bias_initializer=bias_initializer,
                         dtype=dtype,
@@ -250,13 +256,14 @@ class SLP():
                 slices.append(self._output_slices[slice_name])
 
             # connect output layer
-            self._output_layer = layers.Concatenate(name='output')(slices)
+            self._output_layer = layers.Concatenate(name="output")(slices)
             # print(self._output_layer)
 
             # create model
-            self._model = keras.Model(inputs=self._input_layer,outputs=self._output_layer,name=name)
-            #self._model.summary()
-
+            self._model = keras.Model(
+                inputs=self._input_layer, outputs=self._output_layer, name=name
+            )
+            # self._model.summary()
 
     @property
     def input_layer(self):

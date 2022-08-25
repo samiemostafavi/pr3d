@@ -1,21 +1,26 @@
-import numpy as np
-import seaborn as sns
-import matplotlib.pyplot as plt
-import pandas as pd
-
-import tensorflow_probability as tfp
-import tensorflow as tf
-tf.config.set_visible_devices([], 'GPU')
-
-import pyarrow as pa
-import pyarrow.parquet as pq
+# import tensorflow_probability as tfp
 import time
 
-from pr3d.de import ConditionalGammaEVM, ConditionalGaussianMM, ConditionalGammaMixtureEVM
-from utils.dataset import create_dataset, load_parquet
+import matplotlib.pyplot as plt
+import numpy as np
+
+# import pandas as pd
+import seaborn as sns
+import tensorflow as tf
+
+from pr3d.de import (  # ConditionalGammaEVM,; ConditionalGammaMixtureEVM,
+    ConditionalGaussianMM,
+)
+
+tf.config.set_visible_devices([], "GPU")
+
+# import pyarrow as pa
+# import pyarrow.parquet as pq
 
 
-dtype = 'float64' # 'float32' or 'float16'
+# from utils.dataset import create_dataset, load_parquet
+
+dtype = "float64"  # 'float32' or 'float16'
 
 
 """
@@ -43,29 +48,33 @@ ax.set_xlim(0,100)
 fig.tight_layout()
 plt.savefig('cond_sample_n_test.png')
 """
-N = 100000 # 489 seconds for 100k samples, 17 seconds for 10k samples
+N = 100000  # 489 seconds for 100k samples, 17 seconds for 10k samples
 # plot conditional samples with x from the dataset
-X = { 'queue_length1': np.zeros(N), 'queue_length2': np.zeros(N), 'queue_length3' : np.zeros(N) }
+X = {
+    "queue_length1": np.zeros(N),
+    "queue_length2": np.zeros(N),
+    "queue_length3": np.zeros(N),
+}
 
 # load the conditional trained model
-conditional_delay_model = ConditionalGaussianMM( #ConditionalGammaMixtureEVM, ConditionalGaussianMM
-    h5_addr = "gmm_conditional_model.h5", #gmevm_conditional_model.h5, gmm_conditional_model.h5
-    dtype = dtype,
+conditional_delay_model = ConditionalGaussianMM(  # ConditionalGammaMixtureEVM, ConditionalGaussianMM
+    h5_addr="gmm_conditional_model.h5",  # gmevm_conditional_model.h5, gmm_conditional_model.h5
+    dtype=dtype,
 )
 start = time.time()
 conditional_samples = conditional_delay_model.sample_n(
-    x = X,
-    rng  = np.random.default_rng(12345),
+    x=X,
+    rng=np.random.default_rng(12345),
 )
 end = time.time()
-print(end-start)
+print(end - start)
 
 fig, ax = plt.subplots()
 sns.histplot(
     conditional_samples,
     kde=False,
-    ax = ax,
+    ax=ax,
 )
-ax.set_xlim(0,100)
+ax.set_xlim(0, 100)
 fig.tight_layout()
-plt.savefig('cond_sample_n_test_gmevm.png')
+plt.savefig("cond_sample_n_test_gmevm.png")

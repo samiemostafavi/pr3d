@@ -143,5 +143,6 @@ dmypy.json
 *.parquet
 *.tgz
 *.tar.xz
+results
 
 !test
