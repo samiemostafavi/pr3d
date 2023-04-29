@@ -32,7 +32,6 @@ class GaussianMixtureEVM(NonConditionalDensityEstimator):
         dtype: str = "float64",
     ):
         super(GaussianMixtureEVM, self).__init__(
-            centers=centers,
             h5_addr=h5_addr,
             bayesian=bayesian,
             batch_size=batch_size,
