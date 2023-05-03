@@ -72,7 +72,7 @@ class GaussianMixtureEVM(NonConditionalDensityEstimator):
             },
             "tail_threshold": {
                 "slice_size": 1,
-                "slice_activation": "softplus",
+                "slice_activation": None,
             },
             "tail_scale": {
                 "slice_size": 1,
