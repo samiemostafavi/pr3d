@@ -68,7 +68,7 @@ class GammaMixtureEVM(NonConditionalDensityEstimator):
             },
             "tail_parameter": {
                 "slice_size": 1,
-                "slice_activation": "relu",#"softplus",
+                "slice_activation": "softplus",
             },
             "tail_threshold": {
                 "slice_size": 1,
@@ -131,7 +131,7 @@ class GammaMixtureEVM(NonConditionalDensityEstimator):
         )
 
         # create gamma mixture prob model
-        cat = tfd.Categorical(probs=self.weights, dtype=self.dtype)
+        cat = tfd.Categorical(probs=self.mixture_gamma_weights, dtype=self.dtype)
         components = [
             tfd.Gamma(concentration=shape, rate=rate)
             for shape, rate in zip(
