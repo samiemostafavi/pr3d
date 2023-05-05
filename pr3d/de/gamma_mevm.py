@@ -72,7 +72,7 @@ class GammaMixtureEVM(NonConditionalDensityEstimator):
             },
             "tail_threshold": {
                 "slice_size": 1,
-                "slice_activation": None, #"softplus",
+                "slice_activation": "softplus",
             },
             "tail_scale": {
                 "slice_size": 1,
