@@ -1,0 +1,18 @@
+{
+    "type": "gmevm",
+    "bayesian": false,
+    "centers": 10,
+    "hidden_sizes": [10, 50, 50, 40],
+    "condition_labels" : ["mcs_UL"],
+    "y_label" : "send",
+    "training_params": {
+        "dataset_size": 52500,
+        "batch_size": 6582,
+        "rounds" : [
+            {"learning_rate": 1e-2, "epochs":200},
+            {"learning_rate": 1e-3, "epochs":400},
+            {"learning_rate": 1e-4, "epochs":400},
+            {"learning_rate": 1e-5, "epochs":400}
+        ]
+    }
+}
