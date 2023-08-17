@@ -235,3 +235,84 @@ class ConditionalRecurrentGaussianMM(ConditionalRecurrentDensityEstimator):
 
         result = components.quantile(y_samples)
         return np.squeeze(result.numpy())
+
+    def quantile(
+        self,
+        Y,
+        X,
+        q,
+        seed: int = 0,
+    ) -> npt.NDArray[np.float64]:
+        
+        # Y : np array with length equal to self.recurrent_taps
+        if len(Y) != self.recurrent_taps or len(X) != self.recurrent_taps:
+            raise Exception("sequence length is not equal to recurrent_taps of the model")
+
+        prediction_res = self._params_model.predict(
+            [np.expand_dims(Y, axis=0), np.expand_dims(X, axis=0)]
+        )
+        result_dict = {}
+        for idx, param in enumerate(self.params_config):
+            result_dict[param] = np.squeeze(prediction_res[idx])
+
+        weights = result_dict["mixture_weights"]
+        locs_t = tf.convert_to_tensor(
+            result_dict["mixture_locations"], dtype=self.dtype
+        )
+        scales_t = tf.convert_to_tensor(result_dict["mixture_scales"], dtype=self.dtype)
+
+        # select from components
+        cat_samples = tf.random.categorical(
+            logits=tf.expand_dims(tf.math.log(weights),axis=0),
+            num_samples=1,
+            seed=seed,
+        )
+
+        locs_t = tf.gather(tf.expand_dims(locs_t,axis=0), cat_samples, axis=1, batch_dims=1)
+        scales_t = tf.gather(tf.expand_dims(scales_t,axis=0), cat_samples, axis=1, batch_dims=1)
+
+        components = tfd.Normal(loc=locs_t, scale=scales_t)
+
+        result = components.quantile(np.array([q]))
+        return np.squeeze(result.numpy())
+    
+
+    def quantile_batch(
+        self,
+        Y,
+        X,
+        q,
+        seed: int = 0,
+    ) -> npt.NDArray[np.float64]:
+        
+        # Y : np array with length equal to self.recurrent_taps
+        if len(Y[0,:]) != self.recurrent_taps or len(X[0,:]) != self.recurrent_taps:
+            raise Exception("sequence length is not equal to recurrent_taps of the model")
+
+        prediction_res = self._params_model.predict(
+            [Y, X]
+        )
+        result_dict = {}
+        for idx, param in enumerate(self.params_config):
+            result_dict[param] = np.squeeze(prediction_res[idx])
+
+        weights = result_dict["mixture_weights"]
+        locs_t = tf.convert_to_tensor(
+            result_dict["mixture_locations"], dtype=self.dtype
+        )
+        scales_t = tf.convert_to_tensor(result_dict["mixture_scales"], dtype=self.dtype)
+
+        # select from components
+        cat_samples = tf.random.categorical(
+            logits=tf.math.log(weights),
+            num_samples=1,
+            seed=seed,
+        )
+
+        locs_t = tf.gather(tf.squeeze(locs_t), tf.squeeze(cat_samples), axis=1, batch_dims=1)
+        scales_t = tf.gather(tf.squeeze(scales_t), tf.squeeze(cat_samples), axis=1, batch_dims=1)
+
+        components = tfd.Normal(loc=locs_t, scale=scales_t)
+
+        result = components.quantile(q)
+        return np.squeeze(result.numpy())
