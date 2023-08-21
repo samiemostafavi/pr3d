@@ -732,7 +732,7 @@ class ConditionalRecurrentDensityEstimator(DensityEstimator):
         self, 
         Y: npt.NDArray[np.float64], 
         X: npt.NDArray[np.float64],
-        y: np.float64
+        y: np.float64,
     ) -> Tuple[np.float64, np.float64, np.float64]:
         
         # for single value y (not batch)
@@ -742,8 +742,12 @@ class ConditionalRecurrentDensityEstimator(DensityEstimator):
         if len(Y) != self.recurrent_taps or len(X) != self.recurrent_taps:
             raise Exception("sequence length is not equal to recurrent_taps of the model")
 
+        Y = np.expand_dims(Y, axis=0)
+        X = np.expand_dims(X, axis=0)
+        y = np.expand_dims(y, axis=0)
         [pdf, log_pdf, ecdf] = self.prob_pred_model.predict(
-            [np.expand_dims(Y, axis=0), np.expand_dims(X, axis=0), np.expand_dims(y, axis=0)],
+            [Y, X, y],
+            batch_size=1,
         )
         return np.squeeze(pdf), np.squeeze(log_pdf), np.squeeze(ecdf)
 
@@ -771,7 +775,7 @@ class ConditionalRecurrentDensityEstimator(DensityEstimator):
 
         [pdf, log_pdf, ecdf] = self.prob_pred_model.predict(
             [Y, X, y],
-            batch_size=len(y),
+            batch_size=batch_size,
             verbose=verbose,
             steps=steps,
             callbacks=None,
