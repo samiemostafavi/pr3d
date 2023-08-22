@@ -263,9 +263,20 @@ class GaussianMixtureEVM(NonConditionalDensityEstimator):
         )
 
 
-        # defne the loss function
+        class CustomLossLayer(tf.keras.layers.Layer):
+            def __init__(self, idtype=tf.float64, **kwargs):
+                super(CustomLossLayer, self).__init__(**kwargs)
+                self.idtype = idtype
+
+            def call(self, inputs):
+                y_true, y_pred = inputs
+                loss = -tf.reduce_sum(y_pred) / tf.cast(tf.size(y_true), self.idtype)
+                return loss
+
+        # define the loss function
         # y_pred will be self.log_pdf which is (batch_size,1)
-        self._loss = lambda y_true, y_pred: -tf.reduce_sum(y_pred)
+        #self._loss = lambda y_true, y_pred: -tf.reduce_sum(y_pred)/tf.cast(tf.size(self.y_input),self.dtype)
+        self._loss = lambda y_true, y_pred: CustomLossLayer(self.dtype)([y_true, y_pred])
 
         # create the sampling model
         # sample_input: random uniform numbers in [0,1]
