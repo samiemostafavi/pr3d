@@ -447,7 +447,6 @@ class RnnSLP:
         batch_size,
         name: str = None,
         recurrent_taps: int = None,
-        recurrent_layer_size: int = None,
         layer_config: dict = None,
         dtype = None,
         kernel_initializer="glorot_uniform",
@@ -503,7 +502,7 @@ class RnnSLP:
                 lstm_slice_name = slice_name + "_lstm"
                 slice_lstm = layers.LSTM(
                     name=lstm_slice_name,
-                    units=recurrent_layer_size,
+                    units=layer_config[slice_name]["slice_size"],
                     kernel_initializer=kernel_initializer,
                     bias_initializer=bias_initializer,
                     dtype=dtype,
