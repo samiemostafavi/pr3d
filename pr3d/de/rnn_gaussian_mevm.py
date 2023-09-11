@@ -23,7 +23,6 @@ class RecurrentGaussianMEVM(NonConditionalRecurrentDensityEstimator):
         self,
         centers: int = 8,
         recurrent_taps: int = 32,
-        recurrent_layer_size: int = 16,
         h5_addr: str = None,
         batch_size: int = None,
         dtype: str = "float64",
@@ -33,7 +32,6 @@ class RecurrentGaussianMEVM(NonConditionalRecurrentDensityEstimator):
             h5_addr=h5_addr,
             batch_size=batch_size,
             recurrent_taps=recurrent_taps,
-            recurrent_layer_size=recurrent_layer_size,
             dtype=dtype,
         )
 
@@ -43,7 +41,6 @@ class RecurrentGaussianMEVM(NonConditionalRecurrentDensityEstimator):
             with h5py.File(h5_addr, "r") as hf:
                 self._centers = int(hf.get("centers")[0])
                 self._recurrent_taps = int(hf.get("recurrent_taps")[0])
-                self._recurrent_layer_size = int(hf.get("recurrent_layer_size")[0])
 
                 if "batch_size" in hf.keys():
                     self._batch_size = int(hf.get("batch_size")[0])
@@ -51,7 +48,6 @@ class RecurrentGaussianMEVM(NonConditionalRecurrentDensityEstimator):
         else:
             self._centers = centers
             self._recurrent_taps = recurrent_taps
-            self._recurrent_layer_size = recurrent_layer_size
             self._batch_size = batch_size
 
 
@@ -96,7 +92,6 @@ class RecurrentGaussianMEVM(NonConditionalRecurrentDensityEstimator):
         with h5py.File(h5_addr, "a") as hf:
             hf.create_dataset("centers", shape=(1,), data=int(self.centers))
             hf.create_dataset("recurrent_taps", shape=(1,), data=int(self.recurrent_taps))
-            hf.create_dataset("recurrent_layer_size", shape=(1,), data=int(self.recurrent_layer_size))
             if self.batch_size is not None:
                 hf.create_dataset("batch_size", shape=(1,), data=int(self.batch_size))
 
