@@ -282,7 +282,6 @@ class NonConditionalRecurrentDensityEstimator(DensityEstimator):
     def __init__(
         self,
         recurrent_taps: int = None,
-        recurrent_layer_size: int = None,
         h5_addr: str = None,
         batch_size: int = None,
         dtype: str = None,
@@ -295,7 +294,6 @@ class NonConditionalRecurrentDensityEstimator(DensityEstimator):
         )
 
         self._recurrent_taps = recurrent_taps
-        self._recurrent_layer_size = recurrent_layer_size
 
     def create_core(self, h5_addr: str):
 
@@ -308,7 +306,6 @@ class NonConditionalRecurrentDensityEstimator(DensityEstimator):
                 ),
                 batch_size=self.batch_size,
                 recurrent_taps=self.recurrent_taps,
-                recurrent_layer_size=self.recurrent_layer_size,
             )
         else:
             # create SLP model
@@ -316,7 +313,6 @@ class NonConditionalRecurrentDensityEstimator(DensityEstimator):
                 name="rnnslp_keras_model",
                 batch_size=self.batch_size,
                 recurrent_taps=self.recurrent_taps,
-                recurrent_layer_size=self.recurrent_layer_size,
                 layer_config=self.params_config,
                 dtype=self.dtype,
             )
@@ -442,10 +438,6 @@ class NonConditionalRecurrentDensityEstimator(DensityEstimator):
     @property
     def recurrent_taps(self):
         return self._recurrent_taps
-
-    @property
-    def recurrent_layer_size(self):
-        return self._recurrent_layer_size
 
 
 class ConditionalDensityEstimator(DensityEstimator):
