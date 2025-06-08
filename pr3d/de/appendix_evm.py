@@ -18,9 +18,44 @@ from pr3d.common.evm import (
 
 tfd = tfp.distributions
 
+def bounded_tanh(x, lo=-0.1, hi=2.0):
+    return lo + (hi - lo) * (tf.math.tanh(x) + 1.) / 2.
+
+tf.keras.utils.get_custom_objects()['bounded_tanh'] = bounded_tanh
+
 # in order to use tfd.Gamma.quantile
 # tf.compat.v1.disable_eager_execution()
 
+from scipy.stats import norm
+from scipy.optimize import bisect
+
+def gaussian_mixture_quantile(weights: np.ndarray,
+                              locs:    np.ndarray,
+                              scales:  np.ndarray,
+                              p: float = 0.99,
+                              bracket_sigmas: float = 10.0) -> float:
+    """
+    Returns q such that F(q)=p for a 1-D Gaussian mixture
+    defined by weights, locs, scales  (all 1-D arrays of equal length).
+    """
+
+    # normalise weights in case they do not sum to 1 exactly
+    weights = weights / weights.sum()
+
+    def mix_cdf(x: float) -> float:
+        return np.sum(weights * norm.cdf((x - locs) / scales))
+
+    # crude but safe bracket
+    lo = locs.min() - bracket_sigmas * scales.max()
+    hi = locs.max() + bracket_sigmas * scales.max()
+
+    # root-find F(x) - p = 0
+    return bisect(lambda x: mix_cdf(x) - p, lo, hi, xtol=1e-8)
+
+#def bounded_tanh(x, lo=-0.05, hi=2.0):
+#    return lo + (hi - lo) * (tf.math.tanh(x) + 1.) / 2.
+
+#tf.keras.utils.get_custom_objects()['bounded_tanh'] = bounded_tanh
 
 class AppendixEVM(NonConditionalDensityEstimator):
     def __init__(
@@ -77,17 +112,28 @@ class AppendixEVM(NonConditionalDensityEstimator):
         self._params_config = {
             "tail_parameter": {
                 "slice_size": 1,
-                "slice_activation": "softplus",
+                "slice_activation": "bounded_tanh", #"linear", #softplus
+                "slice_kernel_initializer": "zeros",
+                "slice_bias_initializer":   "zeros",
             },
             "tail_threshold": {
                 "slice_size": 1,
                 "slice_activation": None, #"softplus",
+                "slice_kernel_initializer": "zeros",
+                "slice_bias_initializer":   "zeros",
             },
             "tail_scale": {
                 "slice_size": 1,
                 "slice_activation": "softplus",
             },
         }
+
+        self._q99 = gaussian_mixture_quantile(
+            weights = np.asarray(self._bulk_params['mixture_weights'],   dtype=np.float64),
+            locs    = np.asarray(self._bulk_params['mixture_locations'], dtype=np.float64),
+            scales  = np.asarray(self._bulk_params['mixture_scales'],    dtype=np.float64),
+            p       = 0.99,
+        )
 
         # ask NonConditionalDensityEstimator to form the SLP
         self.create_core(h5_addr=h5_addr)
@@ -121,19 +167,9 @@ class AppendixEVM(NonConditionalDensityEstimator):
 
         # put tensor components together (from X)
         self.tail_param = self.core_model.output_slices["tail_parameter"]
-        self.tail_threshold = self.core_model.output_slices["tail_threshold"]
+        #self.tail_threshold = self.core_model.output_slices["tail_threshold"]
         self.tail_scale = self.core_model.output_slices["tail_scale"]
 
-        # these models are used for printing parameters
-        self._params_model = keras.Model(
-            inputs=self.dummy_input,
-            outputs=[
-                self.tail_param,
-                self.tail_threshold,
-                self.tail_scale,
-            ],
-            name="params_model",
-        )
 
         # create gaussian mixture prob model
         self.weights = tf.convert_to_tensor(np.array(self._bulk_params['mixture_weights']), dtype=self.dtype)
@@ -148,11 +184,35 @@ class AppendixEVM(NonConditionalDensityEstimator):
         ]
         mixture = tfd.Mixture(cat=cat, components=components)
 
+        # overwrite tail threshold
+        #q99_const = tf.constant(self._q99, dtype=self.dtype)            # shape []
+        #q99_broadcast = tf.broadcast_to(q99_const, tf.shape(self.tail_param))
+        #self.tail_threshold = tf.stop_gradient(q99_broadcast)
+
+        u_min_const   = tf.constant(self._q99, dtype=self.dtype)  # scalar
+        u_min_bcast   = tf.broadcast_to(u_min_const,
+                                        tf.shape(self.core_model.output_slices["tail_threshold"]))
+        u_raw = self.core_model.output_slices["tail_threshold"]
+        self.tail_threshold = u_min_bcast + tf.nn.softplus(u_raw)
+        
+        # these models are used for printing parameters
+        self._params_model = keras.Model(
+            inputs=self.dummy_input,
+            outputs=[
+                self.tail_param,
+                self.tail_threshold,
+                self.tail_scale,
+            ],
+            name="params_model",
+        )
+
         # find the normalization factor (from X)
         # squeezing the tail_threshold was important
         self.norm_factor = tf.constant(1.00, dtype=self.dtype) - mixture.cdf(
             tf.squeeze(self.tail_threshold)
         )
+        self.norm_factor = tf.maximum(self.norm_factor,
+                              tf.constant(1e-40, self.dtype))
 
         # define Y input
         self.y_input = keras.Input(
@@ -263,6 +323,7 @@ class AppendixEVM(NonConditionalDensityEstimator):
             ],
         )
 
+
         # normal training model
         self._training_model = keras.Model(
             inputs=[
@@ -273,7 +334,6 @@ class AppendixEVM(NonConditionalDensityEstimator):
                 self.expanded_log_pdf,  # in shape: (batch_size,1)
             ],
         )
-
 
         # defne the loss function
         # y_pred will be self.log_pdf which is (batch_size,1)
