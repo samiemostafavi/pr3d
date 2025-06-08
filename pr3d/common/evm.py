@@ -1,142 +1,111 @@
 import tensorflow as tf
 import tensorflow_probability as tfp
-
 tfd = tfp.distributions
 
+def safe_log(x, eps=1e-40):
+    """log clipped to avoid -inf."""
+    return tf.math.log(tf.maximum(x, tf.constant(eps, dtype=x.dtype)))
 
-def gpd_prob(
-    tail_threshold,
-    tail_param,
-    tail_scale,
-    norm_factor,
-    y_input,
-    dtype=tf.float64,
-):
+# ------------------------------------------------------------------
+# Helper: safe support check + ξ≈0 (exponential) fallback
+# ------------------------------------------------------------------
+def _gpd_core(z, xi, scale, norm, dtype):
     """
-    tensor-based gpd probability calculation
+    Core of the GPD pdf / survival / quantile with full ξ∈ℝ support.
+    z        : (y - u) / σ    (non-negative tensor)
+    xi       : shape ξ        (can be negative, zero, or positive)
+    scale    : σ              (must be >0)
+    norm     : “normalising” factor coming from the bulk / tail split
     """
-    # y_input could be in batch shape
-    # all y_input values are greater than tail_threshold
+    eps = tf.constant(1e-12, dtype=dtype)
+    is_exp = tf.abs(xi) < eps          # ξ≈0 → exponential limit
 
-    # squeeze the variables
-    y_input = tf.squeeze(y_input)
-    tail_threshold = tf.squeeze(tail_threshold)
-    tail_param = tf.squeeze(tail_param)
-    tail_scale = tf.squeeze(tail_scale)
+    # 1 + ξ z  (needed many times)
+    one_plus = 1. + xi * z
 
-    # if tail_scale is not zero
-    prob = tf.multiply(
-        norm_factor,
-        tf.multiply(
-            tf.divide(
-                tf.constant(1.00, dtype=dtype),
-                tail_scale,
-            ),
-            tf.pow(
-                tf.add(
-                    tf.constant(1.00, dtype=dtype),
-                    tf.multiply(
-                        tail_param,
-                        tf.divide(
-                            tf.abs(y_input - tail_threshold),
-                            tail_scale,
-                        ),
-                    ),
-                ),
-                tf.divide(
-                    -tail_param - tf.constant(1.00, dtype=dtype),
-                    tail_param,
-                ),
-            ),
-        ),
-    )
+    # ----------------------------------------------------------------
+    # pdf
+    # ----------------------------------------------------------------
+    pdf_gp  = norm / scale * tf.pow(one_plus, -1. - 1./xi)           # ξ≠0
+    pdf_exp = norm / scale * tf.exp(-z)                              # ξ≈0
+    pdf     = tf.where(is_exp, pdf_exp, pdf_gp)
 
-    return tf.squeeze(prob)
+    # ----------------------------------------------------------------
+    # tail (survival) probability
+    # ----------------------------------------------------------------
+    sf_gp   = norm * tf.pow(one_plus, -1./xi)                        # ξ≠0
+    sf_exp  = norm * tf.exp(-z)                                      # ξ≈0
+    sf      = tf.where(is_exp, sf_exp, sf_gp)
+
+    return pdf, sf, one_plus, is_exp
 
 
-def gpd_tail_prob(
-    tail_threshold,
-    tail_param,
-    tail_scale,
-    norm_factor,
-    y_input,
-    dtype=tf.float64,
-):
-    """
-    tensor-based gpd tail probability calculation
-    """
-    # y_input could be in batch shape
-    # all y_input values are greater than tail_threshold
+# ------------------------------------------------------------------
+# 1)  pdf  (works for any ξ)
+# ------------------------------------------------------------------
+def gpd_prob(tail_threshold, tail_param, tail_scale, norm_factor,
+             y_input, dtype=tf.float64):
+    y   = tf.squeeze(y_input)
+    u   = tf.squeeze(tail_threshold)
+    xi  = tf.squeeze(tail_param)
+    σ   = tf.squeeze(tail_scale)
+    nrm = tf.squeeze(norm_factor)
 
-    # squeeze the variables
-    y_input = tf.squeeze(y_input)
-    tail_threshold = tf.squeeze(tail_threshold)
-    tail_param = tf.squeeze(tail_param)
-    tail_scale = tf.squeeze(tail_scale)
+    # distance above threshold
+    z = tf.maximum(y - u, 0.) / σ
 
-    # if tail_scale is not zero
-    tail_prob = tf.multiply(
-        norm_factor,
-        tf.pow(
-            tf.add(
-                tf.constant(1.00, dtype=dtype),
-                tf.multiply(
-                    tf.abs(y_input - tail_threshold),
-                    tf.divide(tail_param, tail_scale),
-                ),
-            ),
-            tf.divide(
-                tf.constant(-1.00, dtype=dtype),
-                tail_param,
-            ),
-        ),
-    )
+    pdf, _, one_plus, _ = _gpd_core(z, xi, σ, nrm, dtype)
 
-    return tf.squeeze(tail_prob)
+    # enforce support for ξ<0 (upper end-point: u − σ/ξ)
+    valid = one_plus > 0.
+    return tf.where(valid, pdf, tf.zeros_like(pdf))
 
 
-def gpd_quantile(
-    tail_threshold,
-    tail_param,
-    tail_scale,
-    norm_factor,
-    random_input,
-    dtype: tf.DType = tf.float64,
-):
-    """
-    tensor-based gpd quantile calculation
-    """
+# ------------------------------------------------------------------
+# 2)  tail (survival) probability  P(Y ≥ y)
+# ------------------------------------------------------------------
+def gpd_tail_prob(tail_threshold, tail_param, tail_scale, norm_factor,
+                  y_input, dtype=tf.float64):
+    y   = tf.squeeze(y_input)
+    u   = tf.squeeze(tail_threshold)
+    xi  = tf.squeeze(tail_param)
+    σ   = tf.squeeze(tail_scale)
+    nrm = tf.squeeze(norm_factor)
 
-    # squeeze the variables
-    random_input = tf.squeeze(random_input)
-    tail_threshold = tf.squeeze(tail_threshold)
-    tail_param = tf.squeeze(tail_param)
-    tail_scale = tf.squeeze(tail_scale)
-    norm_factor = tf.squeeze(norm_factor)
+    z = tf.maximum(y - u, 0.) / σ
+    _, sf, one_plus, _ = _gpd_core(z, xi, σ, nrm, dtype)
 
-    # if tail_param and norm_factor are not zero
-    quantile = tf.add(
-        tail_threshold,
-        tf.multiply(
-            tf.divide(tail_scale, tail_param),
-            tf.add(
-                tf.constant(-1.00, dtype=dtype),
-                tf.pow(
-                    tf.divide(
-                        tf.add(
-                            tf.constant(1.00, dtype=dtype),
-                            tf.multiply(tf.constant(-1.00, dtype=dtype), random_input),
-                        ),
-                        norm_factor,
-                    ),
-                    tf.multiply(tf.constant(-1.00, dtype=dtype), tail_param),
-                ),
-            ),
-        ),
-    )
+    valid = one_plus > 0.
+    return tf.where(valid, sf, tf.zeros_like(sf))
 
-    return tf.squeeze(quantile)
 
+# ------------------------------------------------------------------
+# 3)  quantile function  (random_input ~ U(0,1))
+# ------------------------------------------------------------------
+def gpd_quantile(tail_threshold, tail_param, tail_scale, norm_factor,
+                 random_input, dtype=tf.float64):
+    u       = tf.squeeze(tail_threshold)
+    xi      = tf.squeeze(tail_param)
+    σ       = tf.squeeze(tail_scale)
+    nrm     = tf.squeeze(norm_factor)
+    p       = tf.squeeze(random_input)          # assume already U(0,1)
+
+    eps     = tf.constant(1e-12, dtype=dtype)
+    is_exp  = tf.abs(xi) < eps
+
+    # exponential limit
+    q_exp = u - σ * safe_log(1. - p / nrm)
+
+    # general ξ≠0 case
+    q_gp = u + σ / xi * (tf.pow(1. - p / nrm, -xi) - 1.)
+
+    q = tf.where(is_exp, q_exp, q_gp)
+
+    # clamp to upper end-point when ξ<0  (u − σ/ξ)
+    upper = u - σ / tf.where(xi < 0., xi, tf.ones_like(xi))
+    q = tf.where((xi < 0.) & (q > upper), upper, q)
+
+    return q
 
 def gpd_log_prob(
     tail_threshold,
@@ -150,7 +119,7 @@ def gpd_log_prob(
     tensor-based gpd log probability calculation
     """
     # all values are greater than tail_threshold
-    return tf.log(
+    return safe_log(
         gpd_prob(
             tail_threshold=tail_threshold,
             tail_param=tail_param,
@@ -184,6 +153,7 @@ def split_bulk_gpd(
     bulk_samples_count = y_batch_size - tail_samples_count
 
     return bool_split_tensor, tail_samples_count, bulk_samples_count
+
 
 
 def split_bulk_gpd_cdf(
@@ -265,7 +235,7 @@ def mixture_log_prob(
     dtype: tf.DType,
 ):
 
-    return tf.math.log(
+    return safe_log(
         mixture_prob(
             bool_split_tensor=bool_split_tensor,
             gpd_prob_t=gpd_prob_t,
@@ -303,3 +273,4 @@ def mixture_sample(
         ),
         axis=0,
     )
+
