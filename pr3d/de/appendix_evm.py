@@ -4,6 +4,20 @@ import tensorflow as tf
 import tensorflow_probability as tfp
 import numpy as np
 import numpy.typing as npt
+from keras import layers
+import h5py
+import keras
+import tensorflow as tf
+import tensorflow_probability as tfp
+tfd = tfp.distributions
+
+from typing import Tuple
+
+import keras
+import numpy as np
+import numpy.typing as npt
+import tensorflow as tf
+from keras import layers
 
 from pr3d.common.core import NonConditionalDensityEstimator
 from pr3d.common.evm import (
