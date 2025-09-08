@@ -1,9 +1,10 @@
 import h5py
-import keras
 import numpy as np
 import numpy.typing as npt
 import tensorflow as tf
 import tensorflow_probability as tfp
+from tensorflow import keras
+from keras import layers
 
 from pr3d.common.core import ConditionalDensityEstimator
 
@@ -14,16 +15,15 @@ class ConditionalGaussianMM(ConditionalDensityEstimator):
     def __init__(
         self,
         centers: int = 8,
-        x_dim: list = None,
-        h5_addr: str = None,
+        x_dim: list | None = None,
+        h5_addr: str | None = None,
         bayesian: bool = False,
-        batch_size: int = None,
+        batch_size: int | None = None,
         dtype: str = "float64",
         hidden_sizes=(16, 16),
         hidden_activation="tanh",
     ):
-
-        super(ConditionalGaussianMM, self).__init__(
+        super().__init__(
             x_dim=x_dim,
             h5_addr=h5_addr,
             bayesian=bayesian,
@@ -33,27 +33,16 @@ class ConditionalGaussianMM(ConditionalDensityEstimator):
             hidden_activation=hidden_activation,
         )
 
-        # figure out parameters
+        # --- restore / init hyperparams ---
         if h5_addr is not None:
-            # read side parameters
             with h5py.File(h5_addr, "r") as hf:
-                self._x_dim = [
-                    encoded.decode("utf-8") for encoded in list(hf.get("x_dim")[0])
-                ]
-                self._centers = int(hf.get("centers")[0])
-                self._bayesian = bool(hf.get("bayesian")[0])
-
-                if "batch_size" in hf.keys():
-                    self._batch_size = int(hf.get("batch_size")[0])
-
-                if "hidden_sizes" in hf.keys():
-                    self._hidden_sizes = tuple(hf.get("hidden_sizes")[0])
-
-                if "hidden_activation" in hf.keys():
-                    self._hidden_activation = str(
-                        hf.get("hidden_activation")[0].decode("utf-8")
-                    )
-
+                raw = hf.get("x_dim")
+                self._x_dim = [s.decode("utf-8") for s in raw[...]] if raw is not None else x_dim
+                self._centers = int(hf["centers"][0])
+                self._bayesian = bool(hf["bayesian"][0])
+                if "batch_size" in hf: self._batch_size = int(hf["batch_size"][0])
+                if "hidden_sizes" in hf: self._hidden_sizes = tuple(hf["hidden_sizes"][...].tolist())
+                if "hidden_activation" in hf: self._hidden_activation = hf["hidden_activation"][...].astype("S").tobytes().decode()
         else:
             self._x_dim = x_dim
             self._centers = centers
@@ -62,255 +51,177 @@ class ConditionalGaussianMM(ConditionalDensityEstimator):
             self._hidden_sizes = hidden_sizes
             self._hidden_activation = hidden_activation
 
-        # create parameters dict
+        # --- head spec (per-slice) ---
         self._params_config = {
-            "mixture_weights": {
-                "slice_size": self.centers,
-                "slice_activation": "softmax",
-            },
-            "mixture_locations": {
-                "slice_size": self.centers,
-                "slice_activation": None,
-            },
-            "mixture_scales": {
-                "slice_size": self.centers,
-                "slice_activation": "softplus",
-            },
+            "mixture_weights": {"slice_size": self.centers, "slice_activation": "softmax"},
+            "mixture_locations": {"slice_size": self.centers, "slice_activation": None},
+            "mixture_scales": {"slice_size": self.centers, "slice_activation": "softplus"},
         }
 
-        # ask ConditionalDensityEstimator to form the MLP
+        # build the conditional core (MLP with named inputs)
         self.create_core(h5_addr=h5_addr)
-        # self.core_model.model.summary()
-
-        # create models for inference:
-        # self._prob_pred_model, self._sample_model, self._params_model, self._training_model
+        # build inference/training graphs
         self.create_models()
 
+    # ---------- I/O ----------
     def save(self, h5_addr: str) -> None:
         self.core_model.model.save(h5_addr)
         with h5py.File(h5_addr, "a") as hf:
-            hf.create_dataset("x_dim", shape=(1, len(self.x_dim)), data=self.x_dim)
-            hf.create_dataset("centers", shape=(1,), data=int(self.centers))
-            hf.create_dataset("bayesian", shape=(1,), data=int(self.bayesian))
-
+            if "x_dim" in hf: del hf["x_dim"]
+            hf.create_dataset("x_dim", data=np.array(self.x_dim, dtype="S"))
+            hf.create_dataset("centers", data=np.array([int(self.centers)]))
+            hf.create_dataset("bayesian", data=np.array([int(self.bayesian)]))
             if self.batch_size is not None:
-                hf.create_dataset("batch_size", shape=(1,), data=int(self.batch_size))
-
+                hf.create_dataset("batch_size", data=np.array([int(self.batch_size)]))
             if self.hidden_sizes is not None:
-                hf.create_dataset(
-                    "hidden_sizes",
-                    shape=(1, len(self.hidden_sizes)),
-                    data=list(self.hidden_sizes),
-                )
-
+                hf.create_dataset("hidden_sizes", data=np.array(self.hidden_sizes, dtype=np.int32))
             if self.hidden_activation is not None:
-                hf.create_dataset(
-                    "hidden_activation", shape=(1,), data=str(self.hidden_activation)
-                )
+                hf.create_dataset("hidden_activation", data=np.array([str(self.hidden_activation)], dtype="S"))
 
+    # ---------- graphs ----------
     def create_models(self):
+        # inputs from the conditional core
+        # dict[str, KerasTensor] with stable names matching feature names
+        x_inputs_dict = self.core_model.input_slices
+        x_inputs_list = list(x_inputs_dict.values())  # for convenience if needed
 
-        # define X input
-        self.x_input = list(self.core_model.input_slices.values())
+        # heads
+        self.weights = self.core_model.output_slices["mixture_weights"]   # (None, K)
+        self.locs    = self.core_model.output_slices["mixture_locations"] # (None, K)
+        self.scales  = self.core_model.output_slices["mixture_scales"]    # (None, K)
 
-        # put mixture components together
-        self.weights = self.core_model.output_slices["mixture_weights"]
-        self.locs = self.core_model.output_slices["mixture_locations"]
-        self.scales = self.core_model.output_slices["mixture_scales"]
-
-        # create params model
+        # params model (dict inputs → 3 heads)
         self._params_model = keras.Model(
-            # inputs=self.x_input,
-            inputs={**self.core_model.input_slices},
-            outputs=[
-                self.weights,
-                self.locs,
-                self.scales,
-            ],
+            inputs=x_inputs_dict,
+            outputs=[self.weights, self.locs, self.scales],
             name="params_model",
         )
 
-        # create prob model
-        cat = tfd.Categorical(probs=self.weights, dtype=self.dtype)
-        components = [
-            tfd.Normal(loc=loc, scale=scale)
-            for loc, scale in zip(
-                tf.unstack(self.locs, axis=1), tf.unstack(self.scales, axis=1)
-            )
-        ]
-        mixture = tfd.Mixture(cat=cat, components=components)
-
-        # define Y input
+        # target input
         self.y_input = keras.Input(
             name="y_input",
-            shape=(1),
+            shape=(1,),
             batch_size=self.batch_size,
             dtype=self.dtype,
         )
+        y_flat = layers.Lambda(lambda y: tf.squeeze(y, axis=-1), name="y_flat")(self.y_input)  # (None,)
 
-        # define pdf, logpdf and loglikelihood
-        # CAUTION: tfd.Mixture needs this transpose, otherwise, would give (100,100)
-        self.pdf = tf.transpose(mixture.prob(tf.transpose(self.y_input)))
-        self.log_pdf = tf.transpose(mixture.log_prob(tf.transpose(self.y_input)))
-        self.ecdf = tf.transpose(mixture.cdf(tf.transpose(self.y_input)))
-        self.bulk_mean = mixture.mean()
+        # TFP mixture via MixtureSameFamily inside Lambda (Keras-safe)
+        def _pdf(args):
+            w, m, s, y = args
+            mix = tfd.MixtureSameFamily(
+                mixture_distribution=tfd.Categorical(probs=w),
+                components_distribution=tfd.Normal(loc=m, scale=s),
+            )
+            return mix.prob(y)
 
-        # these models are used for probability predictions
+        def _logpdf(args):
+            w, m, s, y = args
+            mix = tfd.MixtureSameFamily(
+                mixture_distribution=tfd.Categorical(probs=w),
+                components_distribution=tfd.Normal(loc=m, scale=s),
+            )
+            return mix.log_prob(y)
+
+        def _cdf(args):
+            w, m, s, y = args
+            mix = tfd.MixtureSameFamily(
+                mixture_distribution=tfd.Categorical(probs=w),
+                components_distribution=tfd.Normal(loc=m, scale=s),
+            )
+            return mix.cdf(y)
+
+        self.pdf     = layers.Lambda(_pdf,    name="pdf",     output_shape=(None,))([self.weights, self.locs, self.scales, y_flat])
+        self.log_pdf = layers.Lambda(_logpdf, name="log_pdf", output_shape=(None,))([self.weights, self.locs, self.scales, y_flat])
+        self.ecdf    = layers.Lambda(_cdf,    name="ecdf",    output_shape=(None,))([self.weights, self.locs, self.scales, y_flat])
+
+        # training output expects shape (None,1)
+        self.expanded_log_pdf = layers.Lambda(lambda z: tf.expand_dims(z, -1), name="expanded_log_pdf")(self.log_pdf)
+
+        # prob-prediction model (dict inputs + y)
         self._prob_pred_model = keras.Model(
-            inputs=[
-                self.x_input,
-                self.y_input,
-            ],
-            outputs=[self.pdf, self.log_pdf, self.ecdf],
+            inputs={**x_inputs_dict, "y_input": self.y_input},
+            outputs=[self.pdf, self.log_pdf, layers.Lambda(lambda z: tf.expand_dims(z, -1), name="ecdf_exp")(self.ecdf)],
             name="prob_pred_model",
         )
 
-        # pipeline training model
+        # pipeline / training models (dict inputs)
         self._pl_training_model = keras.Model(
-            inputs={**self.core_model.input_slices, "y_input": self.y_input},
-            outputs=[
-                self.log_pdf,  # in shape: (batch_size,1)
-            ],
+            inputs={**x_inputs_dict, "y_input": self.y_input},
+            outputs=[self.expanded_log_pdf],
+            name="pl_training_model",
         )
-
-        # normal training model
         self._training_model = keras.Model(
-            inputs=[
-                self.x_input,
-                self.y_input,
-            ],
-            outputs=[
-                self.log_pdf,
-            ],
+            inputs={**x_inputs_dict, "y_input": self.y_input},
+            outputs=[self.expanded_log_pdf],
+            name="training_model",
         )
-        
-        class CustomLossLayer(tf.keras.layers.Layer):
-            def __init__(self, idtype=tf.float64, **kwargs):
-                super(CustomLossLayer, self).__init__(**kwargs)
-                self.idtype = idtype
 
-            def call(self, inputs):
-                y_true, y_pred = inputs
-                loss = -tf.reduce_sum(y_pred) / tf.cast(tf.size(y_true), self.idtype)
-                return loss
+        # mean-NLL (more comparable across batch sizes)
+        self._loss = lambda y_true, y_pred: -tf.reduce_mean(y_pred)
 
-        # define the loss function
-        # y_pred will be self.log_pdf which is (batch_size,1)
-        #self._loss = lambda y_true, y_pred: -tf.reduce_sum(y_pred)/tf.cast(tf.size(self.y_input),self.dtype)
-        self._loss = lambda y_true, y_pred: CustomLossLayer(self.dtype)([y_true, y_pred])
-
+    # ---------- convenience ----------
     @property
-    def centers(self):
-        return self._centers
+    def centers(self): return self._centers
 
-    def mean(
-        self,
-        x: npt.NDArray[np.float64],
-    ):
-
-        prediction_res = self._params_model.predict(
-            x,
+    def mean(self, x: dict[str, npt.NDArray[np.float64]]):
+        """Mixture mean E[Y|X=x] via params_model."""
+        weights, locs, scales = self._params_model.predict(x, verbose=0)
+        mix = tfd.MixtureSameFamily(
+            mixture_distribution=tfd.Categorical(probs=tf.convert_to_tensor(weights, dtype=self.dtype)),
+            components_distribution=tfd.Normal(
+                loc=tf.convert_to_tensor(locs, dtype=self.dtype),
+                scale=tf.convert_to_tensor(scales, dtype=self.dtype),
+            ),
         )
-        result_dict = {}
-        for idx, param in enumerate(self.params_config):
-            result_dict[param] = np.squeeze(prediction_res[idx])
-
-        weights_t = tf.convert_to_tensor(
-            result_dict["mixture_weights"], dtype=self.dtype
-        )
-        locs_t = tf.convert_to_tensor(
-            result_dict["mixture_locations"], dtype=self.dtype
-        )
-        scales_t = tf.convert_to_tensor(result_dict["mixture_scales"], dtype=self.dtype)
-
-        # create mixture model
-        cat = tfd.Categorical(probs=weights_t, dtype=self.dtype)
-        components = [
-            tfd.Normal(loc=loc, scale=scale)
-            for loc, scale in zip(
-                tf.unstack(locs_t, axis=1), tf.unstack(scales_t, axis=1)
-            )
-        ]
-        mixture = tfd.Mixture(cat=cat, components=components)
-
-        return mixture.mean()
+        return mix.mean().numpy()
 
     def quantile(
         self,
-        x,  # dict as below
-        samples,  # numbers between 0.0 and 1.0 (numpy array)
+        x: dict[str, npt.NDArray[np.float64]],
+        samples: npt.NDArray[np.float64],   # probabilities in (0,1)
         value_tolerance=1e-7,
         position_tolerance=1e-3,
     ):
-        """
-        vectorized numerical quantile finder
-        """
-        # x = { 'queue_length1': np.zeros(1000), 'queue_length2': np.zeros(1000), 'queue_length3' : np.zeros(1000) }
-        x_list = np.array([np.array([*items]) for items in zip(*x.values())])
+        """Vectorized numerical quantile finder for mixture CDF."""
+        # initial guess: mixture mean
+        x_mean = self.mean(x).astype(np.float64)
 
-        def model_cdf_fn_t(x):
-            a = x_list
-            b = samples
-            pdf, logpdf, cdf = self.prob_batch(x=a, y=x)
-            return tf.convert_to_tensor(cdf - b, dtype=self.dtype)
+        # define objective F(q) - p for each item
+        def obj(q):
+            # q: Tensor of shape (N,)
+            # build CDF(q | x)
+            weights, locs, scales = self._params_model.predict(x, verbose=0)
+            mix = tfd.MixtureSameFamily(
+                mixture_distribution=tfd.Categorical(probs=tf.convert_to_tensor(weights, dtype=self.dtype)),
+                components_distribution=tfd.Normal(
+                    loc=tf.convert_to_tensor(locs, dtype=self.dtype),
+                    scale=tf.convert_to_tensor(scales, dtype=self.dtype),
+                ),
+            )
+            return mix.cdf(q) - tf.convert_to_tensor(samples, dtype=self.dtype)
 
-        result = tfp.math.find_root_secant(
-            objective_fn=model_cdf_fn_t,
-            initial_position=self.mean(x),
-            value_tolerance=tf.convert_to_tensor(
-                np.ones(len(samples)) * value_tolerance, dtype=self.dtype
-            ),
-            position_tolerance=tf.convert_to_tensor(
-                np.ones(len(samples)) * position_tolerance, dtype=self.dtype
-            ),
+        roots = tfp.math.find_root_secant(
+            objective_fn=obj,
+            initial_position=tf.convert_to_tensor(x_mean.squeeze(), dtype=self.dtype),
+            value_tolerance=tf.convert_to_tensor(np.full_like(samples, value_tolerance, dtype=np.float64), dtype=self.dtype),
+            position_tolerance=tf.convert_to_tensor(np.full_like(samples, position_tolerance, dtype=np.float64), dtype=self.dtype),
         )
+        return roots[0].numpy()
 
-        return np.array(result[0])
+    def sample_n(self, x: dict[str, npt.NDArray[np.float64]], seed: int = 0):
+        """Sample from the conditional mixture via component selection + Normal quantile."""
+        N = len(next(iter(x.values())))
+        weights, locs, scales = self._params_model.predict(x, verbose=0)  # shapes (N,K)
+        weights = np.asarray(weights, dtype=np.float64)
 
-    def sample_n(
-        self,
-        x,
-        seed: int = 0,
-    ):
-        """
-        https://stats.stackexchange.com/questions/243392/generate-sample-data-from-gaussian-mixture-model
-        """
-        # x = { 'queue_length1': np.zeros(1000), 'queue_length2': np.zeros(1000), 'queue_length3' : np.zeros(1000) }
-        batch_size = len(list(x.values())[0])
+        # choose component per sample
+        cat_idx = tf.random.categorical(tf.math.log(weights), num_samples=1, seed=seed)
+        cat_idx = tf.squeeze(cat_idx, axis=1)  # (N,)
 
-        prediction_res = self._params_model.predict(
-            x,
-        )
-        result_dict = {}
-        for idx, param in enumerate(self.params_config):
-            result_dict[param] = np.squeeze(prediction_res[idx])
+        locs_t   = tf.gather(tf.convert_to_tensor(locs,   dtype=self.dtype), cat_idx, axis=1, batch_dims=1)
+        scales_t = tf.gather(tf.convert_to_tensor(scales, dtype=self.dtype), cat_idx, axis=1, batch_dims=1)
 
-        weights = result_dict["mixture_weights"]
-        # weights_t = tf.convert_to_tensor(
-        #     result_dict["mixture_weights"], dtype=self.dtype
-        # )
-        locs_t = tf.convert_to_tensor(
-            result_dict["mixture_locations"], dtype=self.dtype
-        )
-        scales_t = tf.convert_to_tensor(result_dict["mixture_scales"], dtype=self.dtype)
-
-        # select from components
-        cat_samples = tf.random.categorical(
-            logits=tf.math.log(weights),
-            num_samples=1,
-            seed=seed,
-        )
-        cat_samples = tf.squeeze(cat_samples)
-
-        locs_t = tf.gather(locs_t, cat_samples, axis=1, batch_dims=1)
-        scales_t = tf.gather(scales_t, cat_samples, axis=1, batch_dims=1)
-
-        components = tfd.Normal(loc=locs_t, scale=scales_t)
-
-        # random number in (0,1)
-        y_samples = np.random.uniform(
-            size=batch_size,
-        )
-
-        result = components.quantile(y_samples)
-        return result.numpy()
+        comp = tfd.Normal(loc=locs_t, scale=scales_t)
+        u = tf.convert_to_tensor(np.random.uniform(size=N), dtype=self.dtype)
+        return comp.quantile(u).numpy()
