@@ -108,25 +108,13 @@ class NonConditionalDensityEstimator(DensityEstimator):
         # initiate the slp model
         if h5_addr is not None:
             # load the keras model and feed to SLP
-            if self.bayesian:
-                self._core_model = SLP(
-                    loaded_slp_model=keras.models.load_model(
-                        h5_addr,
-                        custom_objects={
-                            "SavableDenseFlipout": SavableDenseFlipout,
-                        },
-                    ),
-                    bayesian=self.bayesian,
-                    batch_size=self.batch_size,
-                )
-            else:
-                self._core_model = SLP(
-                    loaded_slp_model=keras.models.load_model(
-                        h5_addr,
-                    ),
-                    bayesian=self.bayesian,
-                    batch_size=self.batch_size,
-                )
+            self._core_model = SLP(
+                loaded_slp_model=keras.models.load_model(
+                    h5_addr,
+                ),
+                bayesian=self.bayesian,
+                batch_size=self.batch_size,
+            )
 
         else:
             # create SLP model
@@ -274,8 +262,6 @@ class NonConditionalDensityEstimator(DensityEstimator):
             validation_data=test_dataset,
             # metrics=[keras.metrics.KLDivergence()]
         )
-
-
 
 class NonConditionalRecurrentDensityEstimator(DensityEstimator):
 
