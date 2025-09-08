@@ -7,7 +7,5 @@ from .appendix_evm import AppendixEVM
 from .gamma_mevm import GammaMixtureEVM
 from .gamma_evm import GammaEVM
 from .gaussian_mm import GaussianMM
-from .rnn_gaussian_mm import RecurrentGaussianMM
-from .rnn_gaussian_mevm import RecurrentGaussianMEVM
 from .cond_rnn_gaussian_mm import ConditionalRecurrentGaussianMM
 from .cond_rnn_gaussian_mevm import ConditionalRecurrentGaussianMixtureEVM
