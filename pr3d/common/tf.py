@@ -3,6 +3,13 @@ import numpy as np
 import tensorflow as tf
 from keras import layers
 
+tfd = tfp.distributions
+
+from typing import Tuple
+from keras import layers
+
+from keras.saving import register_keras_serializable
+
 from pr3d.common.bayesian import SavableDenseFlipout
 
 

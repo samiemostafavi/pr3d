@@ -3,6 +3,18 @@ import keras
 import tensorflow as tf
 import tensorflow_probability as tfp
 
+tfd = tfp.distributions
+
+from typing import Tuple
+
+import keras
+import numpy as np
+import numpy.typing as npt
+import tensorflow as tf
+from keras import layers
+
+from keras.saving import register_keras_serializable
+
 from pr3d.common.core import NonConditionalDensityEstimator
 
 tfd = tfp.distributions
@@ -98,167 +110,6 @@ class DensityEstimator:
     def dtype(self):
         return self._dtype
 
-
-class NonConditionalDensityEstimator(DensityEstimator):
-    def create_core(self, h5_addr: str):
-
-        # initiate the slp model
-        if h5_addr is not None:
-            # load the keras model and feed to SLP
-            self._core_model = SLP(
-                loaded_slp_model=keras.models.load_model(
-                    h5_addr,
-                ),
-                bayesian=self.bayesian,
-                batch_size=self.batch_size,
-            )
-
-        else:
-            # create SLP model
-            self._core_model = SLP(
-                name="slp_keras_model",
-                bayesian=self.bayesian,
-                batch_size=self.batch_size,
-                layer_config=self.params_config,
-                dtype=self.dtype,
-            )
-
-    def prob_single(self, y: np.float64) -> Tuple[np.float64, np.float64, np.float64]:
-
-        # for single value x (not batch)
-        # y : np.float64 number
-        x = 0
-        [pdf, log_pdf, ecdf] = self.prob_pred_model.predict(
-            [np.expand_dims(x, axis=0), np.expand_dims(y, axis=0)],
-        )
-        return np.squeeze(pdf), np.squeeze(log_pdf), np.squeeze(ecdf)
-
-    def prob_batch(
-        self,
-        y: npt.NDArray[np.float64],
-        batch_size=32,
-        verbose=0,
-        steps=None,
-        max_queue_size=10,
-        workers=1,
-        use_multiprocessing=False,
-    ):
-
-        # for large batches of input y
-        # y : np.array of np.float64 with the shape (batch_size,1) e.g. np.array([5,6,7,8,9,10])
-        x = np.zeros(len(y))
-
-        # IMPORTANT: batch size by default in keras is set to 32, if data length is 32*k+1, it raises error.
-        if len(y) > batch_size:
-            if len(y) % batch_size == 1:
-                batch_size = batch_size * 2
-
-        [pdf, log_pdf, ecdf] = self.prob_pred_model.predict(
-            [x, y],
-            batch_size=len(y),
-            verbose=verbose,
-            steps=steps,
-            callbacks=None,
-            max_queue_size=max_queue_size,
-            workers=workers,
-            use_multiprocessing=use_multiprocessing,
-        )
-        return np.squeeze(pdf), np.squeeze(log_pdf), np.squeeze(ecdf)
-
-    def sample_n(
-        self,
-        n: int,
-        random_generator: np.random.Generator = np.random.default_rng(),
-        batch_size=None,
-        verbose=0,
-        steps=None,
-        max_queue_size=10,
-        workers=1,
-        use_multiprocessing=False,
-    ) -> npt.NDArray[np.float64]:
-
-        # generate n random numbers uniformly distributed on [0,1]
-        x = np.zeros(n)
-        y = random_generator.uniform(0, 1, n)
-
-        samples = self.sample_model.predict(
-            [x, y],
-            batch_size=batch_size,
-            verbose=verbose,
-            steps=steps,
-            callbacks=None,
-            max_queue_size=max_queue_size,
-            workers=workers,
-            use_multiprocessing=use_multiprocessing,
-        )
-        return np.squeeze(samples)
-
-    def get_parameters(self) -> dict:
-
-        # for single value x (not batch)
-        # y : np.float64 number
-        x = 0
-        # for single value x (not batch)
-        # x : np.array of np.float64 with the shape (ndim)
-        prediction_res = self.params_model.predict(np.expand_dims(x, axis=0))
-
-        result_dict = {}
-        for idx, param in enumerate(self.params_config):
-            result_dict[param] = np.squeeze(prediction_res[idx])
-
-        return result_dict
-
-    def fit(
-        self,
-        Y,
-        optimizer,
-        batch_size: int = 1000,
-        epochs: int = 10,
-    ):
-
-        # this keras model is the one that we use for training
-        # self.core_model.model.compile(optimizer=optimizer, loss=self.loss)
-        self.training_model.compile(optimizer=optimizer, loss=self.loss)
-
-        X = np.zeros(len(Y))
-        # history = self.core_model.model.fit(
-        self.training_model.fit(
-            x=[X, Y],
-            y=Y,
-            batch_size=batch_size,
-            epochs=epochs,
-            # We pass some validation for
-            # monitoring validation loss and metrics
-            # at the end of each epoch
-            # validation_data=(x_val, y_val),
-        )
-
-    def fit_pipeline(
-        self,
-        train_dataset,
-        test_dataset,
-        optimizer,
-        batch_size: int = 1000,
-        epochs: int = 10,
-    ):
-
-        # this keras model is the one that we use for training
-        # self.core_model.model.compile(optimizer=optimizer, loss=self.loss)
-        self.pl_training_model.compile(optimizer=optimizer, loss=self.loss)
-
-        # In this train_dataset, there must be an all zero column
-
-        # history = self.core_model.model.fit(
-        self.pl_training_model.fit(
-            train_dataset,
-            batch_size=batch_size,
-            epochs=epochs,
-            # We pass some validation for
-            # monitoring validation loss and metrics
-            # at the end of each epoch
-            validation_data=test_dataset,
-            # metrics=[keras.metrics.KLDivergence()]
-        )
 
 
 

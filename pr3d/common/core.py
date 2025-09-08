@@ -5,6 +5,14 @@ import numpy as np
 import numpy.typing as npt
 import tensorflow as tf
 
+tfd = tfp.distributions
+
+from typing import Tuple
+
+from keras import layers
+
+from keras.saving import register_keras_serializable
+
 from pr3d.common.bayesian import SavableDenseFlipout
 from pr3d.common.tf import MLP, SLP, RnnMLP, RnnSLP
 
