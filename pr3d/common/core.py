@@ -4,7 +4,7 @@ import keras
 import numpy as np
 import numpy.typing as npt
 import tensorflow as tf
-
+import tensorflow_probability as tfp
 tfd = tfp.distributions
 
 from typing import Tuple

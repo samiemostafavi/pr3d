@@ -2,7 +2,6 @@ import h5py
 import keras
 import tensorflow as tf
 import tensorflow_probability as tfp
-
 tfd = tfp.distributions
 
 from typing import Tuple

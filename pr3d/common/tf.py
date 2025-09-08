@@ -2,7 +2,7 @@ import keras
 import numpy as np
 import tensorflow as tf
 from keras import layers
-
+import tensorflow_probability as tfp
 tfd = tfp.distributions
 
 from typing import Tuple
