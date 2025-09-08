@@ -1,6 +1,13 @@
 import tensorflow as tf
 import tensorflow_probability as tfp
 tfd = tfp.distributions
+import keras
+from keras import layers, ops as kops
+import tensorflow as tf
+import tensorflow_probability as tfp
+tfd = tfp.distributions
+
+from pr3d.common.core import NonConditionalDensityEstimator
 
 def safe_log(x, eps=1e-40):
     """log clipped to avoid -inf."""
@@ -273,4 +280,6 @@ def mixture_sample(
         ),
         axis=0,
     )
+
+
 

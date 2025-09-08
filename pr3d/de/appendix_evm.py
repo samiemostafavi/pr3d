@@ -18,10 +18,17 @@ from pr3d.common.evm import (
 
 tfd = tfp.distributions
 
-def bounded_tanh(x, lo=-0.1, hi=2.0):
+from keras.saving import register_keras_serializable
+
+@register_keras_serializable(package="custom")
+def bounded_tanh(x, lo=-0.5, hi=0.6):
     return lo + (hi - lo) * (tf.math.tanh(x) + 1.) / 2.
 
-tf.keras.utils.get_custom_objects()['bounded_tanh'] = bounded_tanh
+def make_bounded_tanh(lo, hi):
+    def fn(x, lo=lo, hi=hi):
+        lo = tf.cast(lo, x.dtype); hi = tf.cast(hi, x.dtype)
+        return lo + (hi - lo) * (tf.math.tanh(x) + 1.0) / 2.0
+    return fn
 
 # in order to use tfd.Gamma.quantile
 # tf.compat.v1.disable_eager_execution()
@@ -62,6 +69,9 @@ class AppendixEVM(NonConditionalDensityEstimator):
         self,
         bulk_params: dict = None,
         h5_addr: str = None,
+        tanh_lo: float = -0.5,
+        tanh_hi: float = 0.6,
+        param_threshold: float = 0.99,
         bayesian: bool = False,
         batch_size: int = None,
         dtype: str = "float64",
@@ -80,6 +90,9 @@ class AppendixEVM(NonConditionalDensityEstimator):
 
                 # load bayesian
                 self._bayesian = bool(hf.get("bayesian")[0])
+                self._tanh_lo = bool(hf.get("tanh_lo")[0])
+                self._tanh_hi = bool(hf.get("tanh_hi")[0])
+                self._param_threshold = bool(hf.get("param_threshold")[0])
 
                 # load bulk_params
                 self._bulk_params = {}
@@ -107,12 +120,15 @@ class AppendixEVM(NonConditionalDensityEstimator):
             self._bulk_params = bulk_params
             self._bayesian = bayesian
             self._batch_size = batch_size
+            self._tanh_lo = tanh_lo
+            self._tanh_hi = tanh_hi
+            self._param_threshold = param_threshold
 
         # create parameters dict
         self._params_config = {
             "tail_parameter": {
                 "slice_size": 1,
-                "slice_activation": "bounded_tanh", #"linear", #softplus
+                "slice_activation": make_bounded_tanh(self._tanh_lo,self._tanh_hi), #"linear", #softplus
                 "slice_kernel_initializer": "zeros",
                 "slice_bias_initializer":   "zeros",
             },
@@ -132,7 +148,7 @@ class AppendixEVM(NonConditionalDensityEstimator):
             weights = np.asarray(self._bulk_params['mixture_weights'],   dtype=np.float64),
             locs    = np.asarray(self._bulk_params['mixture_locations'], dtype=np.float64),
             scales  = np.asarray(self._bulk_params['mixture_scales'],    dtype=np.float64),
-            p       = 0.99,
+            p       = self._param_threshold,
         )
 
         # ask NonConditionalDensityEstimator to form the SLP
@@ -146,6 +162,10 @@ class AppendixEVM(NonConditionalDensityEstimator):
     def save(self, h5_addr: str) -> None:
         self.core_model.model.save(h5_addr)
         with h5py.File(h5_addr, "a") as hf:
+            hf.create_dataset("tanh_lo", shape=(1,), data=int(self._tanh_lo))
+            hf.create_dataset("tanh_hi", shape=(1,), data=int(self._tanh_hi))
+            hf.create_dataset("param_threshold", shape=(1,), data=int(self._param_threshold))
+
             # save bayesian
             hf.create_dataset("bayesian", shape=(1,), data=int(self.bayesian))
 
@@ -159,245 +179,181 @@ class AppendixEVM(NonConditionalDensityEstimator):
 
     def create_models(self):
 
-        # now lets define the models to get probabilities
+        # --- inputs ---
+        self.dummy_input = self.core_model.input_layer  # keep your SLP input
+        self.y_input = keras.Input(
+            name="y_input",
+            shape=(1,),                      # FIX: (1,) not (1)
+            dtype=self.dtype,
+        )
 
-        # define dummy input
-        self.dummy_input = self.core_model.input_layer
-        # t = tf.fill(tf.shape(self.core_model.input_layer), 0.0)
-
-        # put tensor components together (from X)
-        self.tail_param = self.core_model.output_slices["tail_parameter"]
-        #self.tail_threshold = self.core_model.output_slices["tail_threshold"]
-        self.tail_scale = self.core_model.output_slices["tail_scale"]
-
-
-        # create gaussian mixture prob model
+        # --- bulk (constant) Gaussian mixture from provided params ---
         self.weights = tf.convert_to_tensor(np.array(self._bulk_params['mixture_weights']), dtype=self.dtype)
-        self.locs = tf.convert_to_tensor(np.array(self._bulk_params['mixture_locations']), dtype=self.dtype)
-        self.scales = tf.convert_to_tensor(np.array(self._bulk_params['mixture_scales']), dtype=self.dtype)
-        cat = tfd.Categorical(probs=self.weights, dtype=self.dtype)
-        components = [
-            tfd.Normal(loc=loc, scale=scale)
-            for loc, scale in zip(
-                self.locs, self.scales
-            )
-        ]
-        mixture = tfd.Mixture(cat=cat, components=components)
+        self.locs    = tf.convert_to_tensor(np.array(self._bulk_params['mixture_locations']), dtype=self.dtype)
+        self.scales  = tf.convert_to_tensor(np.array(self._bulk_params['mixture_scales']), dtype=self.dtype)
 
-        # overwrite tail threshold
-        #q99_const = tf.constant(self._q99, dtype=self.dtype)            # shape []
-        #q99_broadcast = tf.broadcast_to(q99_const, tf.shape(self.tail_param))
-        #self.tail_threshold = tf.stop_gradient(q99_broadcast)
+        # tfd.MixtureSameFamily is simpler & vectorized
+        mix = tfd.MixtureSameFamily(
+            mixture_distribution=tfd.Categorical(probs=self.weights),  # don't pass float dtype
+            components_distribution=tfd.Normal(loc=self.locs, scale=self.scales),
+        )
 
-        u_min_const   = tf.constant(self._q99, dtype=self.dtype)  # scalar
-        u_min_bcast   = tf.broadcast_to(u_min_const,
-                                        tf.shape(self.core_model.output_slices["tail_threshold"]))
-        u_raw = self.core_model.output_slices["tail_threshold"]
-        self.tail_threshold = u_min_bcast + tf.nn.softplus(u_raw)
-        
-        # these models are used for printing parameters
+        # --- tail parameter heads from SLP ---
+        self.tail_param  = self.core_model.output_slices["tail_parameter"]   # (None,1)
+        u_raw            = self.core_model.output_slices["tail_threshold"]   # (None,1)
+        self.tail_scale  = self.core_model.output_slices["tail_scale"]       # (None,1)
+
+        # --- effective threshold (already fixed unique name) ---
+        self.tail_threshold = layers.Lambda(
+            lambda x: tf.nn.softplus(x) + tf.cast(self._q99, x.dtype),
+            name="tail_threshold_eff",
+            output_shape=(1,),                      # per-sample one value (still (None,1) here)
+        )(u_raw)
+
+        # --- params model ---
         self._params_model = keras.Model(
             inputs=self.dummy_input,
-            outputs=[
-                self.tail_param,
-                self.tail_threshold,
-                self.tail_scale,
-            ],
+            outputs=[self.tail_param, self.tail_threshold, self.tail_scale],
             name="params_model",
         )
 
-        # find the normalization factor (from X)
-        # squeezing the tail_threshold was important
-        self.norm_factor = tf.constant(1.00, dtype=self.dtype) - mixture.cdf(
-            tf.squeeze(self.tail_threshold)
-        )
-        self.norm_factor = tf.maximum(self.norm_factor,
-                              tf.constant(1e-40, self.dtype))
+        # ---- norm factor: 1 - F_bulk(u) -> (None,) then clamp ----
+        norm_raw = layers.Lambda(
+            lambda u: 1.0 - mix.cdf(tf.squeeze(u, axis=-1)),
+            name="norm_factor_raw",
+            output_shape=(None,),
+        )(self.tail_threshold)
+        self.norm_factor = layers.Lambda(
+            lambda n: tf.maximum(n, tf.cast(1e-40, n.dtype)),
+            name="norm_factor",
+            output_shape=(None,),
+        )(norm_raw)
 
-        # define Y input
-        self.y_input = keras.Input(
-            name="y_input",
-            shape=(1),
-            batch_size=self.batch_size,
-            dtype=self.dtype,
-        )
+        # ---- y flatten: (None,1) -> (None,) ----
+        y_flat = layers.Lambda(lambda y: tf.squeeze(y, axis=-1),
+                              name="y_flat", output_shape=(None,))(self.y_input)
 
-        # create batch size tensor (from Y)
-        self.y_batchsize = tf.cast(tf.size(self.y_input), dtype=self.dtype)
+        # ---- bulk prob / cdf (ALL -> (None,)) ----
+        bulk_prob_t = layers.Lambda(lambda y: mix.prob(y),
+                                    name="bulk_prob", output_shape=(None,))(y_flat)
+        bulk_cdf_t  = layers.Lambda(lambda y: mix.cdf(y),
+                                    name="bulk_cdf",  output_shape=(None,))(y_flat)
+        bulk_tail_prob_t = layers.Lambda(lambda c: 1.0 - c,
+                                        name="bulk_tail_prob", output_shape=(None,))(bulk_cdf_t)
 
-        # split the values into bulk and tail according to the tail_threshold (from X and Y)
-        bool_split_tensor, tail_samples_count, bulk_samples_count = split_bulk_gpd(
-            tail_threshold=self.tail_threshold,
-            y_input=self.y_input,
-            y_batch_size=self.y_batchsize,
-            dtype=self.dtype,
-        )
+        # ---- GPD prob / tail (return (None,)) ----
+        gpd_prob_t = layers.Lambda(
+            lambda args: gpd_prob(args[0], args[1], args[2], args[3], args[4], dtype=self.dtype),
+            name="gpd_prob", output_shape=(None,),
+        )([self.tail_threshold, self.tail_param, self.tail_scale, self.norm_factor, y_flat])
 
-        # define bulk probabilities (from X and Y)
-        bulk_prob_t = mixture.prob(tf.squeeze(self.y_input))
-        bulk_cdf_t = mixture.cdf(tf.squeeze(self.y_input))
-        bulk_tail_prob_t = tf.constant(1.00, dtype=self.dtype) - bulk_cdf_t
+        gpd_tail_prob_t = layers.Lambda(
+            lambda args: gpd_tail_prob(args[0], args[1], args[2], args[3], args[4], dtype=self.dtype),
+            name="gpd_tail_prob", output_shape=(None,),
+        )([self.tail_threshold, self.tail_param, self.tail_scale, self.norm_factor, y_flat])
 
-        # define tail probabilities (from X and Y)
-        gpd_prob_t = gpd_prob(
-            tail_threshold=self.tail_threshold,
-            tail_param=self.tail_param,
-            tail_scale=self.tail_scale,
-            norm_factor=self.norm_factor,
-            y_input=tf.squeeze(self.y_input),
-            dtype=self.dtype,
-        )
-        gpd_tail_prob_t = gpd_tail_prob(
-            tail_threshold=self.tail_threshold,
-            tail_param=self.tail_param,
-            tail_scale=self.tail_scale,
-            norm_factor=self.norm_factor,
-            y_input=tf.squeeze(self.y_input),
-            dtype=self.dtype,
-        )
+        # ---- split: (None,) boolean ----
+        bool_split_tensor = layers.Lambda(
+            lambda args: tf.greater(tf.squeeze(args[0], -1), tf.squeeze(args[1], -1)),
+            name="is_tail", output_shape=(None,),
+        )([self.y_input, self.tail_threshold])
 
-        # define final mixture probability tensors (from X and Y)
-        self.pdf = mixture_prob(
-            bool_split_tensor=bool_split_tensor,
-            gpd_prob_t=gpd_prob_t,
-            bulk_prob_t=bulk_prob_t,
-            dtype=self.dtype,
-        )
+        # (Optional) counts (scalars, but keep as (None,) just to avoid extra rank issues)
+        tail_samples_count = layers.Lambda(
+            lambda b: tf.reduce_sum(tf.cast(b, self.dtype)),
+            name="tail_count", output_shape=(),
+        )(bool_split_tensor)
+        batch_size_t = layers.Lambda(
+            lambda y: tf.cast(tf.shape(y)[0], self.dtype),
+            name="batch_size_t", output_shape=(),
+        )(self.y_input)
+        bulk_samples_count = layers.Lambda(
+            lambda ab: ab[0] - ab[1],
+            name="bulk_count", output_shape=(),
+        )([batch_size_t, tail_samples_count])
 
-        self.log_pdf = mixture_log_prob(
-            bool_split_tensor=bool_split_tensor,
-            gpd_prob_t=gpd_prob_t,
-            bulk_prob_t=bulk_prob_t,
-            dtype=self.dtype,
-        )
-        self.expanded_log_pdf = tf.expand_dims(self.log_pdf, axis=1)
+        # ---- final mixture PDF / tail  (all inputs (None,) → output (None,)) ----
+        self.pdf = layers.Lambda(
+            lambda args: tf.where(args[0], args[1], tf.zeros_like(args[1])) +
+                        tf.where(tf.logical_not(args[0]), args[2], tf.zeros_like(args[2])),
+            name="mixture_pdf", output_shape=(None,),
+        )([bool_split_tensor, gpd_prob_t, bulk_prob_t])
 
-        self.ecdf = tf.constant(1.00, dtype=self.dtype) - mixture_tail_prob(
-            bool_split_tensor=bool_split_tensor,
-            gpd_tail_prob_t=gpd_tail_prob_t,
-            bulk_tail_prob_t=bulk_tail_prob_t,
-            dtype=self.dtype,
-        )
+        self.log_pdf = layers.Lambda(
+            lambda z: tf.math.log(tf.maximum(z, tf.constant(1e-40, z.dtype))),
+            name="mixture_logpdf", output_shape=(None,),
+        )(self.pdf)
 
-        # these models are used for probability predictions
+        # training wants (None,1)
+        self.expanded_log_pdf = layers.Lambda(
+            lambda z: tf.expand_dims(z, -1),
+            name="expanded_log_pdf", output_shape=(None,1),
+        )(self.log_pdf)
+
+        mixture_tail = layers.Lambda(
+            lambda args: tf.where(args[0], args[1], tf.zeros_like(args[1])) +
+                        tf.where(tf.logical_not(args[0]), args[2], tf.zeros_like(args[2])),
+            name="mixture_tail", output_shape=(None,),
+        )([bool_split_tensor, gpd_tail_prob_t, bulk_tail_prob_t])
+
+        self.ecdf = layers.Lambda(lambda t: 1.0 - t,
+                                  name="ecdf_scalar", output_shape=(None,))(mixture_tail)
+        self.ecdf = layers.Lambda(lambda z: tf.expand_dims(z, -1),
+                                  name="ecdf", output_shape=(None,1))(self.ecdf)
+
+        # turn the boolean mask into float via Lambda layers (shape => (None,))
+        is_tail_float = layers.Lambda(
+            lambda b: tf.cast(b, self.dtype),
+            name="is_tail_float",
+            output_shape=(None,),
+        )(bool_split_tensor)
+
+        is_bulk_float = layers.Lambda(
+            lambda b: tf.cast(tf.logical_not(b), self.dtype),
+            name="is_bulk_float",
+            output_shape=(None,),
+        )(bool_split_tensor)
+
         self.full_prob_model = keras.Model(
-            inputs=[
-                self.dummy_input,
-                self.y_input,
-            ],
+            inputs=[self.dummy_input, self.y_input],
             outputs=[
-                tf.cast(bool_split_tensor, dtype=self.dtype),
-                tf.cast(tf.logical_not(bool_split_tensor), dtype=self.dtype),
-                bulk_prob_t,
-                gpd_prob_t,
-                tail_samples_count,
-                bulk_samples_count,
+                is_tail_float,
+                is_bulk_float,
+                bulk_prob_t,       # (None,)
+                gpd_prob_t,        # (None,)
+                tail_samples_count,  # scalar ()
+                bulk_samples_count,  # scalar ()
             ],
             name="full_prob_model",
         )
 
         self._prob_pred_model = keras.Model(
-            inputs=[
-                self.dummy_input,
-                self.y_input,
-            ],
+            inputs=[self.dummy_input, self.y_input],
             outputs=[self.pdf, self.log_pdf, self.ecdf],
             name="prob_pred_model",
         )
 
         self.norm_factor_model = keras.Model(
             inputs=self.dummy_input,
-            outputs=[
-                tf.expand_dims(
-                    self.norm_factor, axis=0
-                ),  # very important "expand_dims"
-            ],
+            outputs=[layers.Lambda(lambda n: tf.expand_dims(n, 0),
+                                  name="norm_factor_expand", output_shape=(None,))(self.norm_factor)],
             name="norm_factor_model",
         )
 
-        # pipeline training model
         self._pl_training_model = keras.Model(
-            inputs={"dummy_input": self.dummy_input, "y_input": self.y_input},
-            outputs=[
-                self.expanded_log_pdf,  # in shape: (batch_size,1)
-            ],
+            inputs=[self.dummy_input, self.y_input],
+            outputs=[self.expanded_log_pdf],
+            name="pl_training_model",
         )
 
-
-        # normal training model
         self._training_model = keras.Model(
-            inputs=[
-                self.dummy_input,
-                self.y_input,
-            ],
-            outputs=[
-                self.expanded_log_pdf,  # in shape: (batch_size,1)
-            ],
+            inputs=[self.dummy_input, self.y_input],
+            outputs=[self.expanded_log_pdf],
+            name="training_model",
         )
 
-        # defne the loss function
-        # y_pred will be self.log_pdf which is (batch_size,1)
-        self._loss = lambda y_true, y_pred: -tf.reduce_sum(y_pred)
+        self._loss = lambda y_true, y_pred: -tf.reduce_mean(y_pred)
 
-        # create the sampling model
-        # sample_input: random uniform numbers in [0,1]
-        # feed them to the inverse cdf of the distribution
-
-        # we use the threshold in CDF domain which is norm_factor and create cdf_bool_split_t
-        # split sample_input into the ones greater or smaller than norm_factor
-        # feed smallers to the icdf of Gamma, feed larger values to the icdf of GPD
-
-        """
-        # define random input
-        self.sample_input = keras.Input(
-                name = "sample_input",
-                shape=(1),
-                #batch_size = 100,
-                dtype=self.dtype,
-        )
-
-        # split the samples into bulk and tail according to the norm_factor (from X and Y)
-        cdf_bool_split_t = split_bulk_gpd_cdf(
-            norm_factor = tf.constant(1.00,dtype=self.dtype)-self.norm_factor,
-            random_input = self.sample_input,
-            dtype = self.dtype,
-        )
-
-        # get gpd samples
-        gpd_sample_t = gpd_quantile(
-            tail_threshold = self.tail_threshold,
-            tail_param = self.tail_param,
-            tail_scale = self.tail_scale,
-            norm_factor = self.norm_factor,
-            random_input = tf.squeeze(self.sample_input),
-            dtype = self.dtype,
-        )
-
-        # get bulk samples
-        # ONLY WORKS WITH tf.compat.v1.disable_eager_execution()
-        bulk_sample_t = gamma.quantile(
-            tf.squeeze(self.sample_input)
-        )
-
-        # pass them through the mixture filter
-        self.sample = mixture_sample(
-            cdf_bool_split_t = cdf_bool_split_t,
-            gpd_sample_t = gpd_sample_t,
-            bulk_sample_t = bulk_sample_t,
-            dtype = self.dtype,
-        )
-
-        self._sample_model = keras.Model(
-            inputs=[
-                self.dummy_input,
-                self.sample_input,
-            ],
-            outputs=[
-                self.sample,
-            ],
-            name="sample_model",
-        )
-        """
 
     @property
     def centers(self):
@@ -421,4 +377,3 @@ class AppendixEVM(NonConditionalDensityEstimator):
         mixture = tfd.Mixture(cat=cat, components=components)
 
         return mixture.mean()
-
